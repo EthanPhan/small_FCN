@@ -1,0 +1,13 @@
+# ignore checkpoints
+checkpoints
+
+#ignore data
+data/
+
+# ignore images
+*.jpg
+
+*.py~
+
+# ignore pycache folder
+__pycache__/
