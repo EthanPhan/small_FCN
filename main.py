@@ -3,9 +3,6 @@ import tensorflow as tf
 import helper
 import warnings
 from distutils.version import LooseVersion
-import project_tests as tests
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 import numpy as np
 import sys
 import cv2
@@ -199,7 +196,7 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     # Because the data is imbalance (the number of pixel with label
     # '0' is many time more than the number of pixel with label '1'
     # use pos weight to avoid lazy learning - always predict '0' )
-    classes_weights = tf.constant([0.0949784, 10, 10])
+    classes_weights = tf.constant([0.0949784, 4, 4])
     loss = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(
         targets=tf.cast(labels, tf.float32), logits=logits, pos_weight=classes_weights))
 
@@ -246,7 +243,7 @@ def run_train(sess, training_steps, batch_size, get_batches_fn, train_op, cross_
             sample = sample + batch_size
             print("#%4d  (%10d): %.20f" % (iteration, sample, loss))
 
-            if iteration % 25 == 0:
+            if iteration % 10 == 0:
                 saver.save(sess, os.path.join('checkpoints',
                                               'fcn'), global_step=gl_step)
         print("%4d Loss: %f" % (epoch, loss))
