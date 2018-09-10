@@ -119,8 +119,8 @@ def deconv2d_x2_layer(input, num_classes, name=None):
         kernel_size=(4, 4),
         strides=(2, 2),
         padding='same',
-        kernel_initializer=kernel_initializer(),
-        normalizer_fn=)
+        kernel_initializer=kernel_initializer()
+    )
     deconv = tf.contrib.layers.layer_norm(deconv)
     return deconv
 
