@@ -8,7 +8,7 @@ import cv2
 import scipy
 
 from distutils.version import LooseVersion
-from .model import full_network
+from model import full_network
 
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion(
@@ -25,7 +25,7 @@ else:
 
 KEEP_PROB = 0.75
 EPOCHS = 100000
-BATCH_SIZE = 64
+BATCH_SIZE = 4
 LR = 0.00003
 
 
@@ -150,8 +150,6 @@ def train():
         learning_rate = tf.placeholder(tf.float32)
 
         # Build NN using load_vgg, layers, and optimize function
-        # _input, keep_prob, l3_out, l4_out, l7_out = load_vgg(sess, vgg_path)
-        # last_layer = layers(l3_out, l4_out, l7_out, num_classes)
         last_layer, _input = full_network(num_classes)
         logits, train_op, cross_entropy_loss, gl_step = optimize(
             last_layer, correct_label, learning_rate, num_classes)

@@ -1,12 +1,6 @@
-import os.path
 import tensorflow as tf
-import helper
 import warnings
 from distutils.version import LooseVersion
-import numpy as np
-import sys
-import cv2
-import scipy
 
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion(
@@ -66,7 +60,8 @@ def coordconv_wraper(input):
     return ret
 
 
-def conv2d_layer(inp_tensor, num_kernels, kernel_size, training, name):
+def conv2d_layer(inp_tensor, num_kernels, kernel_size, name,
+                 reuse=None):
     inp_tensor = coordconv_wraper(inp_tensor)
     conv = tf.layers.conv2d(
         inputs=inp_tensor,
@@ -77,28 +72,26 @@ def conv2d_layer(inp_tensor, num_kernels, kernel_size, training, name):
         activation=tf.nn.relu,
         kernel_initializer=kernel_initializer(),
         kernel_regularizer=regularizer(),
-        name=name
+        name=name,
+        reuse=reuse
     )
     return conv
 
 
-def rcl(X):
-    with tf.variable_scope("rcl") as scope:
-        wr = tf.get_variable('weight_r', [3, 3, self.K, self.K],
-                             initializer=kernel_initializer())
-
-        conv1 = tf.layers.conv2d(X, self.K, kernel_size=(
-            3, 3), padding='same', reuse=None, name='rcl')
+def rcl(X, num_kernels, kernel_size, scope_name=None):
+    with tf.variable_scope(scope_name) as scope:
+        conv1 = conv2d_layer(X, num_kernels, kernel_size,
+                             'rcl')
         rcl1 = tf.add(conv1, X)
         bn1 = tf.contrib.layers.batch_norm(rcl1)
         #
-        conv2 = tf.layers.conv2d(bn1, self.K, kernel_size=(
-            3, 3), padding='same', reuse=True, name='rcl')
+        conv2 = conv2d_layer(bn1, num_kernels, kernel_size,
+                             'rcl', True)
         rcl2 = tf.add(conv2, X)
         bn2 = tf.contrib.layers.batch_norm(rcl2)
         #
-        conv3 = tf.layers.conv2d(bn2, self.K, kernel_size=(
-            3, 3), padding='same', reuse=True, name='rcl')
+        conv3 = conv2d_layer(bn2, num_kernels, kernel_size,
+                             'rcl', True)
         rcl3 = tf.add(conv3, X)
         bn3 = tf.contrib.layers.batch_norm(rcl3)
 
@@ -136,40 +129,36 @@ def full_network(num_classes, training=True):
                             None, 768, 512, 1], name='input_tensor')
 
     # conv1
-    conv1_1 = conv2d_layer(_input, 8, 3, training, 'conv1_1')  # 768, 512, 32
-    conv1_2 = conv2d_layer(conv1_1, 8, 3, training, 'conv1_2')
+    conv1_1 = conv2d_layer(_input, 8, 3, 'conv1_1')
+    conv1_2 = rcl(conv1_1, 8, 3, 'rcl1')  # 768, 512, 8
     pool1 = tf.layers.max_pooling2d(
         conv1_2, (2, 2), (2, 2), padding='same', name='pool1')
 
     # conv2
-    conv2_1 = conv2d_layer(pool1, 16, 3, training, 'conv2_1')  # 384, 256, 64
-    conv2_2 = conv2d_layer(conv2_1, 16, 3, training, 'conv2_2')
+    conv2_1 = conv2d_layer(pool1, 16, 3, 'conv2_1')
+    conv2_2 = rcl(conv2_1, 16, 3, 'rcl2')  # 384, 256, 16
     pool2 = tf.layers.max_pooling2d(
         conv2_2, (2, 2), (2, 2), padding='same', name='pool2')
 
     # conv3
-    conv3_1 = conv2d_layer(pool2, 32, 3, training, 'conv3_1')  # 192, 128, 128
-    conv3_2 = conv2d_layer(conv3_1, 32, 3, training,
-                           'conv3_2')
-    conv3_3 = conv2d_layer(conv3_2, 32, 3, training,
-                           'conv3_3')
+    conv3_1 = conv2d_layer(pool2, 32, 3, 'conv3_1')
+    conv3_2 = rcl(conv3_1, 32, 3, 'rcl3')  # 192, 128, 32
     pool3 = tf.layers.max_pooling2d(
-        conv3_3, (2, 2), (2, 2), padding='same', name='pool3')
+        conv3_2, (2, 2), (2, 2), padding='same', name='pool3')
 
     # conv4
-    conv4_1 = conv2d_layer(pool3, 128, 3, training, 'conv4_1')  # 96, 64, 256
-    conv4_2 = conv2d_layer(conv4_1, 128, 3, training, 'conv4_2')
-    conv4_3 = conv2d_layer(conv4_2, 128, 3, training, 'conv4_3')
+    conv4_1 = conv2d_layer(pool3, 64, 3, 'conv4_1')
+    conv4_2 = rcl(conv4_1, 64, 3, 'rcl4')  # 96, 64, 64
     pool4 = tf.layers.max_pooling2d(
-        conv4_3, (2, 2), (2, 2), padding='same', name='pool4')
+        conv4_2, (2, 2), (2, 2), padding='same', name='pool4')
 
     # fc5
-    fc5 = conv2d_layer(pool4, 512, 7, training, 'fc5')  # 48, 32, 512
+    fc5 = conv2d_layer(pool4, 512, 7, 'fc5')  # 48, 32, 512
     drop5 = tf.layers.dropout(fc5, rate=1 - KEEP_PROB,
                               training=training)  # 48, 32, 512
 
     # fc6
-    fc6 = conv2d_layer(drop5, 512, 1, training, 'fc6')  # 48, 32, 512
+    fc6 = conv2d_layer(drop5, 512, 1, 'fc6')  # 48, 32, 512
     drop6 = tf.layers.dropout(fc6, rate=1 - KEEP_PROB,
                               training=training)  # 48, 32, 512
 
