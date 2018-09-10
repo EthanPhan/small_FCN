@@ -108,10 +108,11 @@ def residual_layer(input, num_classes):
         padding='same',
         kernel_initializer=kernel_initializer(),
     )
+    res = rcl(res, num_classes, 1, name)  # 96, 64, 64
     return res
 
 
-def deconv2d_x2_layer(input, num_classes):
+def deconv2d_x2_layer(input, num_classes, name=None):
     input = coordconv_wraper(input)
     deconv = tf.layers.conv2d_transpose(
         inputs=input,
@@ -121,6 +122,7 @@ def deconv2d_x2_layer(input, num_classes):
         padding='same',
         kernel_initializer=kernel_initializer(),
     )
+    deconv = rcl(deconv, num_classes, 4, name)  # 96, 64, 64
     return deconv
 
 
@@ -154,11 +156,13 @@ def full_network(num_classes, training=True):
 
     # fc5
     fc5 = conv2d_layer(pool4, 512, 7, 'fc5')  # 48, 32, 512
+    fc5 = rcl(fc5, 512, 7, 'rcl5')  # 48, 32, 512
     drop5 = tf.layers.dropout(fc5, rate=1 - KEEP_PROB,
                               training=training)  # 48, 32, 512
 
     # fc6
     fc6 = conv2d_layer(drop5, 512, 1, 'fc6')  # 48, 32, 512
+    fc6 = rcl(fc6, 512, 1, 'rcl6')  # 96, 64, 64
     drop6 = tf.layers.dropout(fc6, rate=1 - KEEP_PROB,
                               training=training)  # 48, 32, 512
 
@@ -184,5 +188,6 @@ def full_network(num_classes, training=True):
         padding='same',
         kernel_initializer=kernel_initializer(),
         kernel_regularizer=regularizer())  # 768, 512, num_classes
+    out = rcl(out, num_classes, 8, 'rcl7')  # 96, 64, 64
 
     return out, _input
