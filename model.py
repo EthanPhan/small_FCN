@@ -105,6 +105,7 @@ def residual_layer(input, num_classes, name=None):
         strides=(1, 1),
         padding='same',
         kernel_initializer=kernel_initializer(),
+        normalizer_fn=tf.contrib.layers.layer_norm
     )
     res = rcl(res, num_classes, 1, name)  # 96, 64, 64
     return res
