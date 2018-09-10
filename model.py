@@ -67,6 +67,7 @@ def conv2d_layer(inp_tensor, num_kernels, kernel_size, name,
         strides=(1, 1),
         padding='same',
         activation=tf.nn.relu,
+        normalizer_fn=tf.contrib.layers.layer_norm,
         kernel_initializer=kernel_initializer(),
         kernel_regularizer=regularizer(),
         name=name,
@@ -118,6 +119,7 @@ def deconv2d_x2_layer(input, num_classes, name=None):
         strides=(2, 2),
         padding='same',
         kernel_initializer=kernel_initializer(),
+        normalizer_fn=tf.contrib.layers.layer_norm
     )
     deconv = rcl(deconv, num_classes, 4, name)  # 96, 64, 64
     return deconv
