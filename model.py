@@ -66,14 +66,30 @@ def conv2d_layer(inp_tensor, num_kernels, kernel_size, name,
         kernel_size=(kernel_size, kernel_size),
         strides=(1, 1),
         padding='same',
+        activation=tf.nn.relu,
+        kernel_initializer=kernel_initializer(),
+        kernel_regularizer=regularizer(),
+        name=name,
+        reuse=reuse
+    )
+    return conv
+
+
+def conv2d_layer_no_activation(inp_tensor, num_kernels, kernel_size, name,
+                               reuse=None):
+    inp_tensor = coordconv_wraper(inp_tensor)
+    conv = tf.layers.conv2d(
+        inputs=inp_tensor,
+        filters=num_kernels,
+        kernel_size=(kernel_size, kernel_size),
+        strides=(1, 1),
+        padding='same',
         activation=None,
         kernel_initializer=kernel_initializer(),
         kernel_regularizer=regularizer(),
         name=name,
         reuse=reuse
     )
-    conv = tf.contrib.layers.layer_norm(conv)
-    conv = tf.nn.relu(conv)
     return conv
 
 
@@ -88,13 +104,23 @@ def rcl(X, num_kernels, kernel_size, scope_name=None):
                              'rcl', True)
         rcl2 = tf.add(conv2, X)
         bn2 = tf.contrib.layers.batch_norm(rcl2)
-        #
-        conv3 = conv2d_layer(bn2, num_kernels, kernel_size,
-                             'rcl', True)
-        rcl3 = tf.add(conv3, X)
-        bn3 = tf.contrib.layers.batch_norm(rcl3)
 
-        return bn3
+        return bn2
+
+
+def de_rcl(X, num_kernels, kernel_size, scope_name=None):
+    with tf.variable_scope(scope_name) as scope:
+        conv1 = conv2d_layer_no_activation(X, num_kernels, kernel_size,
+                                           'rcl')
+        rcl1 = tf.add(conv1, X)
+        bn1 = tf.contrib.layers.batch_norm(rcl1)
+        #
+        conv2 = conv2d_layer_no_activation(bn1, num_kernels, kernel_size,
+                                           'rcl', True)
+        rcl2 = tf.add(conv2, X)
+        bn2 = tf.contrib.layers.batch_norm(rcl2)
+
+        return bn2
 
 
 def residual_layer(input, num_classes, name=None):
@@ -107,7 +133,7 @@ def residual_layer(input, num_classes, name=None):
         padding='same',
         kernel_initializer=kernel_initializer()
     )
-    res = tf.contrib.layers.layer_norm(res)
+    res = de_rcl(res, num_classes, 1, name)
     return res
 
 
@@ -121,7 +147,7 @@ def deconv2d_x2_layer(input, num_classes, name=None):
         padding='same',
         kernel_initializer=kernel_initializer()
     )
-    deconv = tf.contrib.layers.layer_norm(deconv)
+    deconv = de_rcl(deconv, num_classes, 4, name)
     return deconv
 
 
@@ -191,6 +217,6 @@ def full_network(num_classes, training=True):
         padding='same',
         kernel_initializer=kernel_initializer(),
         kernel_regularizer=regularizer())  # 768, 512, num_classes
-    out = rcl(out, num_classes, 8, 'out')  # 96, 64, 64
+    out = de_rcl(out, num_classes, 8, 'out')  # 96, 64, 64
 
     return out, _input
