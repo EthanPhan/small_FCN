@@ -27,6 +27,7 @@ KEEP_PROB = 0.75
 EPOCHS = 100000
 BATCH_SIZE = 4
 LR = 0.00003
+CLASS_LOSS_WEIGHTS = [0.0949784, 7, 7]
 
 
 def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
@@ -49,7 +50,7 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     # Because the data is imbalance (the number of pixel with label
     # '0' is many time more than the number of pixel with label '1'
     # use pos weight to avoid lazy learning - always predict '0' )
-    classes_weights = tf.constant([0.0949784, 4, 4])
+    classes_weights = tf.constant(CLASS_LOSS_WEIGHTS)
     loss = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(
         targets=tf.cast(labels, tf.float32), logits=logits, pos_weight=classes_weights))
 
