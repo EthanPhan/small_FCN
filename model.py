@@ -16,9 +16,6 @@ else:
 
 
 KEEP_PROB = 0.75
-EPOCHS = 100000
-BATCH_SIZE = 64
-LR = 0.00003
 
 
 def kernel_initializer():
@@ -98,7 +95,7 @@ def rcl(X, num_kernels, kernel_size, scope_name=None):
         return bn3
 
 
-def residual_layer(input, num_classes):
+def residual_layer(input, num_classes, name=None):
     input = coordconv_wraper(input)
     res = tf.layers.conv2d(
         inputs=input,
@@ -167,16 +164,20 @@ def full_network(num_classes, training=True):
                               training=training)  # 48, 32, 512
 
     # fc7
-    fc7 = residual_layer(drop6, num_classes)  # 48, 32, num_classes
+    fc7 = residual_layer(drop6, num_classes, 'fc7')  # 48, 32, num_classes
 
-    pool3_res = residual_layer(pool3, num_classes)  # 96, 64, num_classes
-    pool2_res = residual_layer(pool2, num_classes)  # 192, 128, num_classes
+    pool3_res = residual_layer(
+        pool3, num_classes, 'pool3_res')  # 96, 64, num_classes
+    pool2_res = residual_layer(
+        pool2, num_classes, 'pool2_res')  # 192, 128, num_classes
 
     # Deconv layers
-    deconv8 = deconv2d_x2_layer(fc7, num_classes)  # 96, 64, num_classes
+    deconv8 = deconv2d_x2_layer(
+        fc7, num_classes, 'deconv8')  # 96, 64, num_classes
     sum8 = tf.add(deconv8, pool3_res)  # 96, 64, num_classes
 
-    deconv9 = deconv2d_x2_layer(sum8, num_classes)  # 192, 128, num_classes
+    deconv9 = deconv2d_x2_layer(
+        sum8, num_classes, 'deconv9')  # 192, 128, num_classes
     sum9 = tf.add(deconv9, pool2_res)  # 192, 128, num_classes
 
     sum9 = coordconv_wraper(sum9)
@@ -188,6 +189,6 @@ def full_network(num_classes, training=True):
         padding='same',
         kernel_initializer=kernel_initializer(),
         kernel_regularizer=regularizer())  # 768, 512, num_classes
-    out = rcl(out, num_classes, 8, 'rcl7')  # 96, 64, 64
+    out = rcl(out, num_classes, 8, 'out')  # 96, 64, 64
 
     return out, _input
