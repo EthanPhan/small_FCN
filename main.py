@@ -26,7 +26,7 @@ else:
 KEEP_PROB = 0.75
 EPOCHS = 100000
 BATCH_SIZE = 4
-LR = 0.0003
+LR = 0.0001
 CLASS_LOSS_WEIGHTS = [0.0949784, 7, 7]
 
 
@@ -52,7 +52,8 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     # use pos weight to avoid lazy learning - always predict '0' )
     classes_weights = tf.constant(CLASS_LOSS_WEIGHTS)
     loss = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(
-        targets=tf.cast(labels, tf.float32), logits=logits, pos_weight=classes_weights))
+        targets=tf.cast(labels, tf.float32), logits=logits,
+        pos_weight=classes_weights))
 
     train_op = tf.train.AdamOptimizer(
         learning_rate).minimize(loss, global_step=gl_step)
@@ -63,8 +64,9 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
 # tests.test_optimize(optimize)
 
 
-def run_train(sess, training_steps, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
-              correct_label, learning_rate, saver, gl_step):
+def run_train(sess, training_steps, batch_size, get_batches_fn, train_op,
+              cross_entropy_loss, input_image, correct_label,
+              learning_rate, saver, gl_step):
     """
     Train neural network and print out the loss during training.
     :param sess: TF Session
@@ -126,8 +128,6 @@ def train():
     num_classes = 3
     image_shape = (768, 512)
     data_dir = './data'
-    runs_dir = './runs'
-    run_label = 'E%04d-B%04d-K%f_' % (EPOCHS, BATCH_SIZE, KEEP_PROB)
     # tests.test_for_kitti_dataset(data_dir)
 
     # Download pretrained vgg model
