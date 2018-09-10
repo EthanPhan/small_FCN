@@ -134,7 +134,6 @@ def residual_layer(input, num_classes, name=None):
         activation=tf.nn.relu,
         kernel_initializer=kernel_initializer()
     )
-    res = rcl(res, num_classes, 1, name)
     return res
 
 
