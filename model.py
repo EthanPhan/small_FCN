@@ -148,7 +148,6 @@ def deconv2d_x2_layer(input, num_classes, name=None):
         activation=tf.nn.relu,
         kernel_initializer=kernel_initializer()
     )
-    deconv = rcl(deconv, num_classes, 4, name)
     return deconv
 
 
@@ -219,6 +218,5 @@ def full_network(num_classes, training=True):
         activation=tf.nn.relu,
         kernel_initializer=kernel_initializer(),
         kernel_regularizer=regularizer())  # 768, 512, num_classes
-    out = rcl(out, num_classes, 8, 'out')  # 96, 64, 64
 
     return out, _input
