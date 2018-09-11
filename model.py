@@ -131,7 +131,6 @@ def residual_layer(input, num_classes, name=None):
         kernel_size=(1, 1),
         strides=(1, 1),
         padding='same',
-        activation=tf.nn.relu,
         kernel_initializer=kernel_initializer()
     )
     return res
@@ -145,9 +144,9 @@ def deconv2d_x2_layer(input, num_classes, name=None):
         kernel_size=(4, 4),
         strides=(2, 2),
         padding='same',
-        activation=tf.nn.relu,
         kernel_initializer=kernel_initializer()
     )
+    deconv = de_rcl(deconv, num_classes, 4, name)
     return deconv
 
 
@@ -215,7 +214,6 @@ def full_network(num_classes, training=True):
         kernel_size=(8, 8),
         strides=(4, 4),
         padding='same',
-        activation=tf.nn.relu,
         kernel_initializer=kernel_initializer(),
         kernel_regularizer=regularizer())  # 768, 512, num_classes
 
