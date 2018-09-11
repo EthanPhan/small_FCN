@@ -146,7 +146,6 @@ def deconv2d_x2_layer(input, num_classes, name=None):
         padding='same',
         kernel_initializer=kernel_initializer()
     )
-    deconv = de_rcl(deconv, num_classes, 4, name)
     return deconv
 
 
