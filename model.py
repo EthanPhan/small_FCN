@@ -1,18 +1,18 @@
 import tensorflow as tf
-import warnings
 from distutils.version import LooseVersion
 
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion(
     '1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
-print('TensorFlow Version: {}'.format(tf.__version__))
 
+"""
 # Check for a GPU
 if not tf.test.gpu_device_name():
     warnings.warn(
         'No GPU found. Please use a GPU to train your neural network.')
 else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
+"""
 
 
 KEEP_PROB = 0.75
@@ -75,24 +75,6 @@ def conv2d_layer(inp_tensor, num_kernels, kernel_size, name,
     return conv
 
 
-def conv2d_layer_no_activation(inp_tensor, num_kernels, kernel_size, name,
-                               reuse=None):
-    inp_tensor = coordconv_wraper(inp_tensor)
-    conv = tf.layers.conv2d(
-        inputs=inp_tensor,
-        filters=num_kernels,
-        kernel_size=(kernel_size, kernel_size),
-        strides=(1, 1),
-        padding='same',
-        activation=None,
-        kernel_initializer=kernel_initializer(),
-        kernel_regularizer=regularizer(),
-        name=name,
-        reuse=reuse
-    )
-    return conv
-
-
 def rcl(X, num_kernels, kernel_size, scope_name=None):
     with tf.variable_scope(scope_name) as scope:
         conv1 = conv2d_layer(X, num_kernels, kernel_size,
@@ -104,26 +86,16 @@ def rcl(X, num_kernels, kernel_size, scope_name=None):
                              'rcl', True)
         rcl2 = tf.add(conv2, X)
         bn2 = tf.contrib.layers.batch_norm(rcl2)
-
-        return bn2
-
-
-def de_rcl(X, num_kernels, kernel_size, scope_name=None):
-    with tf.variable_scope(scope_name) as scope:
-        conv1 = conv2d_layer_no_activation(X, num_kernels, kernel_size,
-                                           'rcl')
-        rcl1 = tf.add(conv1, X)
-        bn1 = tf.contrib.layers.batch_norm(rcl1)
         #
-        conv2 = conv2d_layer_no_activation(bn1, num_kernels, kernel_size,
-                                           'rcl', True)
-        rcl2 = tf.add(conv2, X)
-        bn2 = tf.contrib.layers.batch_norm(rcl2)
+        conv3 = conv2d_layer(bn2, num_kernels, kernel_size,
+                             'rcl', True)
+        rcl3 = tf.add(conv3, X)
+        bn3 = tf.contrib.layers.batch_norm(rcl3)
 
-        return bn2
+        return bn3
 
 
-def residual_layer(input, num_classes, name=None):
+def residual_layer(input, num_classes):
     input = coordconv_wraper(input)
     res = tf.layers.conv2d(
         inputs=input,
@@ -131,12 +103,12 @@ def residual_layer(input, num_classes, name=None):
         kernel_size=(1, 1),
         strides=(1, 1),
         padding='same',
-        kernel_initializer=kernel_initializer()
+        kernel_initializer=kernel_initializer(),
     )
     return res
 
 
-def deconv2d_x2_layer(input, num_classes, name=None):
+def deconv2d_x2_layer(input, num_classes):
     input = coordconv_wraper(input)
     deconv = tf.layers.conv2d_transpose(
         inputs=input,
@@ -144,7 +116,7 @@ def deconv2d_x2_layer(input, num_classes, name=None):
         kernel_size=(4, 4),
         strides=(2, 2),
         padding='same',
-        kernel_initializer=kernel_initializer()
+        kernel_initializer=kernel_initializer(),
     )
     return deconv
 
@@ -179,31 +151,25 @@ def full_network(num_classes, training=True):
 
     # fc5
     fc5 = conv2d_layer(pool4, 512, 7, 'fc5')  # 48, 32, 512
-    fc5 = rcl(fc5, 512, 7, 'rcl5')  # 48, 32, 512
     drop5 = tf.layers.dropout(fc5, rate=1 - KEEP_PROB,
                               training=training)  # 48, 32, 512
 
     # fc6
     fc6 = conv2d_layer(drop5, 512, 1, 'fc6')  # 48, 32, 512
-    fc6 = rcl(fc6, 512, 1, 'rcl6')  # 96, 64, 64
     drop6 = tf.layers.dropout(fc6, rate=1 - KEEP_PROB,
                               training=training)  # 48, 32, 512
 
     # fc7
-    fc7 = residual_layer(drop6, num_classes, 'fc7')  # 48, 32, num_classes
+    fc7 = residual_layer(drop6, num_classes)  # 48, 32, num_classes
 
-    pool3_res = residual_layer(
-        pool3, num_classes, 'pool3_res')  # 96, 64, num_classes
-    pool2_res = residual_layer(
-        pool2, num_classes, 'pool2_res')  # 192, 128, num_classes
+    pool3_res = residual_layer(pool3, num_classes)  # 96, 64, num_classes
+    pool2_res = residual_layer(pool2, num_classes)  # 192, 128, num_classes
 
     # Deconv layers
-    deconv8 = deconv2d_x2_layer(
-        fc7, num_classes, 'deconv8')  # 96, 64, num_classes
+    deconv8 = deconv2d_x2_layer(fc7, num_classes)  # 96, 64, num_classes
     sum8 = tf.add(deconv8, pool3_res)  # 96, 64, num_classes
 
-    deconv9 = deconv2d_x2_layer(
-        sum8, num_classes, 'deconv9')  # 192, 128, num_classes
+    deconv9 = deconv2d_x2_layer(sum8, num_classes)  # 192, 128, num_classes
     sum9 = tf.add(deconv9, pool2_res)  # 192, 128, num_classes
 
     sum9 = coordconv_wraper(sum9)
