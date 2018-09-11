@@ -27,7 +27,7 @@ KEEP_PROB = 0.75
 EPOCHS = 100000
 BATCH_SIZE = 4
 LR = 0.00003
-CLASS_LOSS_WEIGHTS = [0.0949784, 5, 5]
+CLASS_LOSS_WEIGHTS = [0.0949784, 7, 7]
 
 
 def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
