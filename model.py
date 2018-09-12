@@ -57,8 +57,7 @@ def coordconv_wraper(input):
     return ret
 
 
-def conv2d_layer(inp_tensor, num_kernels, kernel_size, name,
-                 reuse=None):
+def conv2d_layer(inp_tensor, num_kernels, kernel_size, name, reuse=None):
     inp_tensor = coordconv_wraper(inp_tensor)
     conv = tf.layers.conv2d(
         inputs=inp_tensor,
@@ -77,22 +76,18 @@ def conv2d_layer(inp_tensor, num_kernels, kernel_size, name,
 
 def rcl(X, num_kernels, kernel_size, scope_name=None):
     with tf.variable_scope(scope_name) as scope:
-        conv1 = conv2d_layer(X, num_kernels, kernel_size,
-                             'rcl')
-        rcl1 = tf.add(conv1, X)
-        bn1 = tf.contrib.layers.batch_norm(rcl1)
-        #
-        conv2 = conv2d_layer(bn1, num_kernels, kernel_size,
-                             'rcl', True)
-        rcl2 = tf.add(conv2, X)
-        bn2 = tf.contrib.layers.batch_norm(rcl2)
-        #
-        conv3 = conv2d_layer(bn2, num_kernels, kernel_size,
-                             'rcl', True)
-        rcl3 = tf.add(conv3, X)
-        bn3 = tf.contrib.layers.batch_norm(rcl3)
+        input = conv2d_layer(X, num_kernels, kernel_size, 'input')
 
-        return bn3
+        for i in range(2):
+            reuse = (i > 0)
+            conv = conv2d_layer(input, num_kernels, kernel_size,
+                                'rcl', reuse)
+            rcl = tf.add(conv, input)
+            bn = tf.contrib.layers.batch_norm(rcl)
+
+            input = bn
+
+        return bn
 
 
 def residual_layer(input, num_classes):
@@ -126,28 +121,24 @@ def full_network(num_classes, training=True):
                             None, 768, 512, 1], name='input_tensor')
 
     # conv1
-    conv1_1 = conv2d_layer(_input, 8, 3, 'conv1_1')
-    conv1_2 = rcl(conv1_1, 8, 3, 'rcl1')  # 768, 512, 8
+    rcl1 = rcl(_input, 8, 3, 'rcl1')  # 768, 512, 32
     pool1 = tf.layers.max_pooling2d(
-        conv1_2, (2, 2), (2, 2), padding='same', name='pool1')
+        rcl1, (2, 2), (2, 2), padding='same', name='pool1')
 
     # conv2
-    conv2_1 = conv2d_layer(pool1, 16, 3, 'conv2_1')
-    conv2_2 = rcl(conv2_1, 16, 3, 'rcl2')  # 384, 256, 16
+    rcl2 = rcl(pool1, 16, 3, 'rcl2')  # 384, 256, 64
     pool2 = tf.layers.max_pooling2d(
-        conv2_2, (2, 2), (2, 2), padding='same', name='pool2')
+        rcl2, (2, 2), (2, 2), padding='same', name='pool2')
 
     # conv3
-    conv3_1 = conv2d_layer(pool2, 32, 3, 'conv3_1')
-    conv3_2 = rcl(conv3_1, 32, 3, 'rcl3')  # 192, 128, 32
+    rcl3 = rcl(pool2, 32, 3, 'rcl3')  # 192, 128, 128
     pool3 = tf.layers.max_pooling2d(
-        conv3_2, (2, 2), (2, 2), padding='same', name='pool3')
+        rcl3, (2, 2), (2, 2), padding='same', name='pool3')
 
     # conv4
-    conv4_1 = conv2d_layer(pool3, 64, 3, 'conv4_1')
-    conv4_2 = rcl(conv4_1, 64, 3, 'rcl4')  # 96, 64, 64
+    rcl4 = rcl(pool3, 64, 3, 'rcl4')  # 96, 64, 256
     pool4 = tf.layers.max_pooling2d(
-        conv4_2, (2, 2), (2, 2), padding='same', name='pool4')
+        rcl4, (2, 2), (2, 2), padding='same', name='pool4')
 
     # fc5
     fc5 = conv2d_layer(pool4, 512, 7, 'fc5')  # 48, 32, 512
