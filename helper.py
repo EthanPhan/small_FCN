@@ -1,16 +1,11 @@
-import re
 import random
 import numpy as np
-import matplotlib.pyplot as plt
 import os.path
 import scipy.misc
 import shutil
-import zipfile
 import time
 import tensorflow as tf
 from glob import glob
-from urllib.request import urlretrieve
-from tqdm import tqdm
 import cv2
 
 
@@ -27,6 +22,21 @@ def translate(image, x, y):
     M = np.float32([[1, 0, x], [0, 1, y]])
     rows, cols, _ = image.shape
     return cv2.warpAffine(image, M, (cols, rows), borderMode=cv2.BORDER_REFLECT)
+
+
+def scale_imge(image, scale):
+    rows, cols, _ = image.shape
+
+    h, w = rows / scale, cols / scale
+    h, w = int(h), int(w)
+    if scale > 1:
+        image = image[:h, cols - w: cols, :]
+        ret = scipy.misc.imresize(image, (rows, cols))
+    else:
+        image = np.pad(image, ((0, h - rows), (0, w - cols), (0, 0)),
+                       'constant', constant_values=0)
+        ret = scipy.misc.imresize(image, (rows, cols))
+    return ret
 
 
 def gen_batch_function(data_folder, image_shape):
@@ -64,10 +74,14 @@ def gen_batch_function(data_folder, image_shape):
                     gt_image = scipy.misc.imresize(
                         cv2.imread(gt_image_file), image_shape)
 
+                    # Random scale
+                    scale = random.uniform(0.7, 1.2)
+                    image = scale_imge(image, scale)
+                    gt_image = scale_imge(gt_image, scale)
+
                     # Random translate x,y
                     x = random.randint(-50, 50)
                     y = random.randint(-80, 80)
-
                     image = translate(image, x, y)
                     gt_image = translate(gt_image, x, y)
 
