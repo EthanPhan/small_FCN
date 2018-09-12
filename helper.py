@@ -34,7 +34,7 @@ def scale_imge(image, scale):
         ret = scipy.misc.imresize(image, (rows, cols))
     else:
         image = np.pad(image, ((0, h - rows), (0, w - cols), (0, 0)),
-                       'constant', constant_values=0)
+                       'constant', constant_values=255)
         ret = scipy.misc.imresize(image, (rows, cols))
     return ret
 
@@ -78,6 +78,9 @@ def gen_batch_function(data_folder, image_shape):
                     scale = random.uniform(0.7, 1.2)
                     image = scale_imge(image, scale)
                     gt_image = scale_imge(gt_image, scale)
+                    print(scale)
+                    cv2.imwrite("label.jpg", gt_image)
+                    exit()
 
                     # Random translate x,y
                     x = random.randint(-50, 50)
