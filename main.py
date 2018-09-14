@@ -123,8 +123,6 @@ def train():
     num_classes = 3
     image_shape = (768, 512)
     data_dir = './data'
-    runs_dir = './runs'
-    run_label = 'E%04d-B%04d-K%f_' % (EPOCHS, BATCH_SIZE, KEEP_PROB)
     # tests.test_for_kitti_dataset(data_dir)
 
     # Download pretrained vgg model
@@ -164,11 +162,6 @@ def train():
         #          cross_entropy_loss, _input, correct_label, keep_prob, learning_rate, saver, gl_step)
         run_train(sess, EPOCHS, BATCH_SIZE, get_batches_fn, train_op,
                   cross_entropy_loss, _input, correct_label, learning_rate, saver, gl_step)
-
-        # Save the variables to disk.
-        save_path = saver.save(
-            sess, "./runs/model_E%04d-B%04d-K%f.ckpt" % (EPOCHS, BATCH_SIZE, KEEP_PROB))
-        print("Model saved in file: %s" % save_path)
 
 
 def infer(input_img):

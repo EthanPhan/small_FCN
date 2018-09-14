@@ -75,7 +75,7 @@ def gen_batch_function(data_folder, image_shape):
                         cv2.imread(gt_image_file), image_shape)
 
                     # Random scale
-                    scale = random.uniform(0.7, 1.2)
+                    scale = random.uniform(0.8, 1.2)
                     image = scale_imge(image, scale)
                     gt_image = scale_imge(gt_image, scale)
 

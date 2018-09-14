@@ -78,7 +78,7 @@ def rcl(X, num_kernels, kernel_size, scope_name=None):
     with tf.variable_scope(scope_name) as scope:
         input = conv2d_layer(X, num_kernels, kernel_size, 'input')
 
-        for i in range(2):
+        for i in range(3):
             reuse = (i > 0)
             conv = conv2d_layer(input, num_kernels, kernel_size,
                                 'rcl', reuse)
