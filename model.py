@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.layers import conv2d, conv2d_transpose, max_pooling2d
 from distutils.version import LooseVersion
 
 # Check TensorFlow Version
@@ -16,6 +17,7 @@ else:
 
 
 KEEP_PROB = 0.75
+BATCH_SIZE = 6
 
 
 def kernel_initializer():
@@ -59,7 +61,7 @@ def coordconv_wraper(input):
 
 def conv2d_layer(inp_tensor, num_kernels, kernel_size, name, reuse=None):
     inp_tensor = coordconv_wraper(inp_tensor)
-    conv = tf.layers.conv2d(
+    conv = conv2d(
         inputs=inp_tensor,
         filters=num_kernels,
         kernel_size=(kernel_size, kernel_size),
@@ -92,7 +94,7 @@ def rcl(X, num_kernels, kernel_size, scope_name=None):
 
 def residual_layer(input, num_classes):
     input = coordconv_wraper(input)
-    res = tf.layers.conv2d(
+    res = conv2d(
         inputs=input,
         filters=num_classes,
         kernel_size=(1, 1),
@@ -105,7 +107,7 @@ def residual_layer(input, num_classes):
 
 def deconv2d_x2_layer(input, num_classes):
     input = coordconv_wraper(input)
-    deconv = tf.layers.conv2d_transpose(
+    deconv = conv2d_transpose(
         inputs=input,
         filters=num_classes,
         kernel_size=(4, 4),
@@ -116,37 +118,85 @@ def deconv2d_x2_layer(input, num_classes):
     return deconv
 
 
+'''
+def attention(tensor, att_tensor, n_filters=512, kernel_size=[1, 1]):
+    g1 = conv2d(tensor, n_filters, kernel_size=kernel_size)
+    x1 = conv2d(att_tensor, n_filters, kernel_size=kernel_size)
+    net = add(g1, x1)
+    net = tf.nn.relu(net)
+    net = conv2d(net, 1, kernel_size=kernel_size)
+    net = tf.nn.sigmoid(net)
+    #net = tf.concat([att_tensor, net], axis=-1)
+    net = net * att_tensor
+    return net
+'''
+
+
+def hw_flatten(x):
+    return tf.reshape(x, shape=[tf.shape(x)[0], -1, x.shape[-1]])
+
+
+def attention(x, ch, scope='attention', reuse=False):
+    with tf.variable_scope(scope, reuse=reuse):
+        f = conv2d(x, ch // 8, kernel_size=(1, 1), strides=(1, 1), padding='same',
+                   kernel_initializer=kernel_initializer())
+        g = conv2d(x, ch // 8, kernel_size=(1, 1), strides=(1, 1), padding='same',
+                   kernel_initializer=kernel_initializer())  # [bs, h, w, c']
+        h = conv2d(x, ch, kernel_size=(1, 1), strides=(1, 1), padding='same',
+                   kernel_initializer=kernel_initializer())  # [bs, h, w, c]
+
+        # N = h * w
+        s = tf.matmul(hw_flatten(g), hw_flatten(
+            f), transpose_b=True)  # [bs, N, N]
+
+        beta = tf.nn.softmax(s)  # attention map
+
+        o = tf.matmul(beta, hw_flatten(h))  # [bs, N, C]
+        gamma = tf.get_variable(
+            "gamma", [1], initializer=tf.constant_initializer(0.0))
+
+        o = tf.reshape(o, shape=tf.shape(x))  # [bs, h, w, C]
+        x = gamma * o + x
+
+    return x
+
+
 def full_network(num_classes, training=True):
     _input = tf.placeholder(dtype=tf.float32, shape=[
                             None, 768, 512, 1], name='input_tensor')
 
     # conv1
-    rcl1 = rcl(_input, 8, 3, 'rcl1')  # 768, 512, 32
-    pool1 = tf.layers.max_pooling2d(
+    rcl1 = rcl(_input, 8, 3, 'rcl1')  # 768, 512, 8
+    pool1 = max_pooling2d(
         rcl1, (2, 2), (2, 2), padding='same', name='pool1')
 
     # conv2
-    rcl2 = rcl(pool1, 16, 3, 'rcl2')  # 384, 256, 64
-    pool2 = tf.layers.max_pooling2d(
+    rcl2 = rcl(pool1, 16, 3, 'rcl2')  # 384, 256, 16
+    rcl2 = attention(rcl2, 16, 'a1')
+    pool2 = max_pooling2d(
         rcl2, (2, 2), (2, 2), padding='same', name='pool2')
 
     # conv3
-    rcl3 = rcl(pool2, 32, 3, 'rcl3')  # 192, 128, 128
-    pool3 = tf.layers.max_pooling2d(
+    rcl3 = rcl(pool2, 32, 3, 'rcl3')  # 192, 128, 32
+    rcl3 = attention(rcl3, 32, 'a2')
+    pool3 = max_pooling2d(
         rcl3, (2, 2), (2, 2), padding='same', name='pool3')
 
     # conv4
-    rcl4 = rcl(pool3, 64, 3, 'rcl4')  # 96, 64, 256
-    pool4 = tf.layers.max_pooling2d(
+    rcl4 = rcl(pool3, 64, 3, 'rcl4')  # 96, 64, 64
+    rcl4 = attention(rcl4, 64, 'a3')
+    pool4 = max_pooling2d(
         rcl4, (2, 2), (2, 2), padding='same', name='pool4')
 
     # fc5
     fc5 = conv2d_layer(pool4, 512, 7, 'fc5')  # 48, 32, 512
+    fc5 = attention(fc5, 512, 'a4')
     drop5 = tf.layers.dropout(fc5, rate=1 - KEEP_PROB,
                               training=training)  # 48, 32, 512
 
     # fc6
     fc6 = conv2d_layer(drop5, 512, 1, 'fc6')  # 48, 32, 512
+    fc6 = attention(fc6, 512, 'a5')
     drop6 = tf.layers.dropout(fc6, rate=1 - KEEP_PROB,
                               training=training)  # 48, 32, 512
 
@@ -164,7 +214,7 @@ def full_network(num_classes, training=True):
     sum9 = tf.add(deconv9, pool2_res)  # 192, 128, num_classes
 
     sum9 = coordconv_wraper(sum9)
-    out = tf.layers.conv2d_transpose(
+    out = conv2d_transpose(
         inputs=sum9,
         filters=num_classes,
         kernel_size=(8, 8),
