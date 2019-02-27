@@ -17,7 +17,6 @@ else:
 
 
 KEEP_PROB = 0.75
-BATCH_SIZE = 6
 
 
 def kernel_initializer():
@@ -133,6 +132,7 @@ def attention(tensor, att_tensor, n_filters=512, kernel_size=[1, 1]):
 
 
 def hw_flatten(x):
+    print(x.shape)
     return tf.reshape(x, shape=[tf.shape(x)[0], -1, x.shape[-1]])
 
 
@@ -172,13 +172,13 @@ def full_network(num_classes, training=True):
 
     # conv2
     rcl2 = rcl(pool1, 16, 3, 'rcl2')  # 384, 256, 16
-    rcl2 = attention(rcl2, 16, 'a1')
+    #rcl2 = attention(rcl2, 16, 'a1')
     pool2 = max_pooling2d(
         rcl2, (2, 2), (2, 2), padding='same', name='pool2')
 
     # conv3
     rcl3 = rcl(pool2, 32, 3, 'rcl3')  # 192, 128, 32
-    rcl3 = attention(rcl3, 32, 'a2')
+    #rcl3 = attention(rcl3, 32, 'a2')
     pool3 = max_pooling2d(
         rcl3, (2, 2), (2, 2), padding='same', name='pool3')
 
@@ -188,16 +188,7 @@ def full_network(num_classes, training=True):
     pool4 = max_pooling2d(
         rcl4, (2, 2), (2, 2), padding='same', name='pool4')
 
-    # fc5
-    fc5 = conv2d_layer(pool4, 512, 7, 'fc5')  # 48, 32, 512
-    fc5 = attention(fc5, 512, 'a4')
-    drop5 = tf.layers.dropout(fc5, rate=1 - KEEP_PROB,
-                              training=training)  # 48, 32, 512
-
-    # fc6
-    fc6 = conv2d_layer(drop5, 512, 1, 'fc6')  # 48, 32, 512
-    fc6 = attention(fc6, 512, 'a5')
-    drop6 = tf.layers.dropout(fc6, rate=1 - KEEP_PROB,
+    drop6 = tf.layers.dropout(pool4, rate=1 - KEEP_PROB,
                               training=training)  # 48, 32, 512
 
     # fc7
@@ -207,7 +198,8 @@ def full_network(num_classes, training=True):
     pool2_res = residual_layer(pool2, num_classes)  # 192, 128, num_classes
 
     # Deconv layers
-    deconv8 = deconv2d_x2_layer(fc7, num_classes)  # 96, 64, num_classes
+    deconv8 = deconv2d_x2_layer(fc7, 64)  # 96, 64, num_classes
+    deconv8 = attention(deconv8, 64, 'a4')
     sum8 = tf.add(deconv8, pool3_res)  # 96, 64, num_classes
 
     deconv9 = deconv2d_x2_layer(sum8, num_classes)  # 192, 128, num_classes
