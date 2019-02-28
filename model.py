@@ -132,18 +132,22 @@ def attention(tensor, att_tensor, n_filters=512, kernel_size=[1, 1]):
 
 
 def hw_flatten(x):
-    print(x.shape)
-    return tf.reshape(x, shape=[tf.shape(x)[0], -1, x.shape[-1]])
+    return tf.reshape(x, shape=[tf.shape(x)[0], -1, tf.shape(x)[-1]])
 
 
-def attention(x, ch, scope='attention', reuse=False):
+def self_attention(x, ch, scope='attention', reuse=False):
+    batch_size, height, width, num_channels = tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2], x.shape[-1]
     with tf.variable_scope(scope, reuse=reuse):
         f = conv2d(x, ch // 8, kernel_size=(1, 1), strides=(1, 1), padding='same',
                    kernel_initializer=kernel_initializer())
+        f = max_pooling2d(f, (2, 2), (2, 2), padding='same', name='poolf')
+        
         g = conv2d(x, ch // 8, kernel_size=(1, 1), strides=(1, 1), padding='same',
                    kernel_initializer=kernel_initializer())  # [bs, h, w, c']
-        h = conv2d(x, ch, kernel_size=(1, 1), strides=(1, 1), padding='same',
+        
+        h = conv2d(x, ch // 2, kernel_size=(1, 1), strides=(1, 1), padding='same',
                    kernel_initializer=kernel_initializer())  # [bs, h, w, c]
+        h = max_pooling2d(h, (2, 2), (2, 2), padding='same', name='poolh')
 
         # N = h * w
         s = tf.matmul(hw_flatten(g), hw_flatten(
@@ -155,7 +159,9 @@ def attention(x, ch, scope='attention', reuse=False):
         gamma = tf.get_variable(
             "gamma", [1], initializer=tf.constant_initializer(0.0))
 
-        o = tf.reshape(o, shape=tf.shape(x))  # [bs, h, w, C]
+        o = tf.reshape(o, shape=[batch_size, height, width, ch // 2])  # [bs, h, w, C]
+        o = conv2d(x, num_channels, kernel_size=(1, 1), strides=(1, 1), padding='same',
+                   kernel_initializer=kernel_initializer())  # [bs, h, w, c]
         x = gamma * o + x
 
     return x
@@ -195,13 +201,13 @@ def full_network(num_classes, training=True):
 
     # # start up path here
     up5 = deconv2d_x2_layer(fc5, 64)  # 96, 64, 64
-    up5 = tf.concatenate([rcl4, up5], -1)  # 96, 64, 128
+    up5 = tf.concat([rcl4, up5], -1)  # 96, 64, 128
     up5 = conv2d_layer(up5, 64, 3, 'up5')
-    up5 = attention(up5, 64, 'a4')
+    #up5 = attention(up5, 64, 'a4')
 
     up6 = deconv2d_x2_layer(up5, 32)  # 192, 128, 32
-    up6 = tf.concatenate([rcl3, up6], -1)  # 192, 128, 64
-    up6 = conv2d_layer(up5, 32, 3, 'up6')
+    up6 = tf.concat([rcl3, up6], -1)  # 192, 128, 64
+    up6 = conv2d_layer(up6, 32, 3, 'up6')
 
     wrap7 = coordconv_wraper(up6)
     up7 = conv2d_transpose(
@@ -212,7 +218,7 @@ def full_network(num_classes, training=True):
         padding='same',
         kernel_initializer=kernel_initializer(),
         kernel_regularizer=regularizer())  # 768, 512, 8
-    up7 = tf.concatenate([rcl1, up7], -1)  # 768, 512, 16
+    #up7 = tf.concat([rcl1, up7], -1)  # 768, 512, 16
     up7 = conv2d_layer(up7, 8, 3, 'up7')
 
     out = conv2d_layer(up7, num_classes, 3, 'out')
