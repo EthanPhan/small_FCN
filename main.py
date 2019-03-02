@@ -23,8 +23,8 @@ else:
 
 
 EPOCHS = 100000
-BATCH_SIZE = 6
-LR = 0.00003
+BATCH_SIZE = 4
+LR = 0.0003
 
 
 def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
@@ -121,7 +121,7 @@ def train():
     if len(sys.argv) > 3:
         KEEP_PROB = float(sys.argv[3])
     num_classes = 3
-    image_shape = (768, 512)
+    image_shape = (512, 448)
     data_dir = './data'
     # tests.test_for_kitti_dataset(data_dir)
 
@@ -166,7 +166,7 @@ def train():
 
 def infer(input_img):
     num_classes = 3
-    image_shape = (768, 512)
+    image_shape = (512, 448)
     data_dir = './data'
     with tf.Session() as sess:
         get_batches_fn = helper.gen_batch_function(
