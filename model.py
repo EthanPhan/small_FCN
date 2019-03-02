@@ -21,11 +21,16 @@ else:
 KEEP_PROB = 0.75
 
 
+def kernel_initializer():
+    return tf.contrib.layers.variance_scaling_initializer()
+    # return tf.contrib.layers.xavier_initializer()
+
+
 def conv_layer(input, filter, kernel, stride=1, layer_name="conv"):
     with tf.name_scope(layer_name):
         network = tf.layers.conv2d(
             inputs=input, filters=filter, kernel_size=kernel, strides=stride, padding='SAME',
-            kernel_initializer=tf.contrib.layers.variance_scaling_initializer())
+            kernel_initializer=kernel_initializer())
         return network
 
 
@@ -65,10 +70,6 @@ def Concat(layers):
 
 def Linear(x):
     return tf.layers.dense(inputs=x, units=class_num, name='linear')
-
-
-def kernel_initializer():
-    return tf.contrib.layers.xavier_initializer()
 
 
 def regularizer():
@@ -217,65 +218,6 @@ def self_attention(x, ch, scope='attention', reuse=False):
     return x
 
 
-'''
-def full_network(num_classes, training=True):
-    _input = tf.placeholder(dtype=tf.float32, shape=[
-                            None, 768, 512, 1], name='input_tensor')
-
-    # conv1
-    rcl1 = rcl(_input, 8, 3, 'rcl1')  # 768, 512, 8
-    pool1 = max_pooling2d(
-        rcl1, (2, 2), (2, 2), padding='same', name='pool1')
-
-    # conv2
-    rcl2 = rcl(pool1, 16, 3, 'rcl2')  # 384, 256, 16
-    #rcl2 = attention(rcl2, 16, 'a1')
-    pool2 = max_pooling2d(
-        rcl2, (2, 2), (2, 2), padding='same', name='pool2')
-
-    # conv3
-    rcl3 = rcl(pool2, 32, 3, 'rcl3')  # 192, 128, 32
-    #rcl3 = attention(rcl3, 32, 'a2')
-    pool3 = max_pooling2d(
-        rcl3, (2, 2), (2, 2), padding='same', name='pool3')
-
-    # conv4
-    rcl4 = rcl(pool3, 64, 3, 'rcl4')  # 96, 64, 64
-    rcl4 = attention(rcl4, 64, 'a3')
-    pool4 = max_pooling2d(
-        rcl4, (2, 2), (2, 2), padding='same', name='pool4')
-
-    drop4 = tf.layers.dropout(pool4, rate=1 - KEEP_PROB,
-                              training=training)  # 48, 32, 64
-
-    fc5 = conv2d_layer(drop4, 128, 3, 'fc5')
-
-    # # start up path here
-    up5 = deconv2d_x2_layer(fc5, 64)  # 96, 64, 64
-    up5 = tf.concat([rcl4, up5], -1)  # 96, 64, 128
-    up5 = conv2d_layer(up5, 64, 3, 'up5')
-    #up5 = attention(up5, 64, 'a4')
-
-    up6 = deconv2d_x2_layer(up5, 32)  # 192, 128, 32
-    up6 = tf.concat([rcl3, up6], -1)  # 192, 128, 64
-    up6 = conv2d_layer(up6, 32, 3, 'up6')
-
-    wrap7 = coordconv_wraper(up6)
-    up7 = conv2d_transpose(
-        inputs=wrap7,
-        filters=8,
-        kernel_size=(8, 8),
-        strides=(4, 4),
-        padding='same',
-        kernel_initializer=kernel_initializer(),
-        kernel_regularizer=regularizer())  # 768, 512, 8
-    # up7 = tf.concat([rcl1, up7], -1)  # 768, 512, 16
-    up7 = conv2d_layer(up7, 8, 3, 'up7')
-
-    out = conv2d_layer(up7, num_classes, 3, 'out')
-    return out, _input
-'''
-
 # for dense unet here
 dropout_rate = 0.2
 
@@ -327,68 +269,86 @@ def dense_block(input_x, filters, nb_layers, layer_name, training=True):
 
         return x
 
+
 def transition_down(x, filters, layer_name, training=True):
-    with tf.name_scope(name):
+    with tf.name_scope(layer_name):
         x = Batch_Norm(x, training=training, scope=layer_name + '_bn')
         x = Relu(x)
-        x = conv_layer(x, filter=filters, kernel=[1, 1], layer_name=layer_name + '_conv1')
+        x = conv_layer(x, filter=filters, kernel=[
+                       1, 1], layer_name=layer_name + '_conv1')
         x = Drop_out(x, rate=dropout_rate, training=training)
-        x = tf.nn.max_pool(x, [1, 2, 2, 1], [1, 2, 2, 1], padding='SAME', name=name+'_maxpool2x2')
+        x = tf.nn.max_pool(x, [1, 2, 2, 1], [1, 2, 2, 1],
+                           padding='SAME', name=layer_name+'_maxpool2x2')
     return x
 
 
-def full_network(num_classes, filters=6, training=True):
+def transition_up(x, filters, layer_name, training=True):
+    with tf.name_scope(layer_name):
+        x = tf.layers.conv2d_transpose(x,
+                                       filters=filters,
+                                       kernel_size=[3, 3],
+                                       strides=[2, 2],
+                                       padding='SAME',
+                                       activation=None,
+                                       kernel_initializer=kernel_initializer(),
+                                       name=layer_name+'_trans_conv3x3')
+
+        return x
+
+
+def full_network(num_classes, filters=4, training=True):
+    # # Down path
     _input = tf.placeholder(dtype=tf.float32, shape=[
                             None, 768, 512, 1], name='input_tensor')
 
     conv0 = conv_layer(_input, filter=2 * filters,
                        kernel=[3, 3], stride=1, layer_name='conv0')
 
-    dense1 = dense_block(conv0, filters, 3, 'dense1', training)  # 768, 512, 8
-    print('dense1', dense1.shape)
-    pool1 = max_pooling2d(
-        dense1, (2, 2), (2, 2), padding='same', name='pool1')
+    # 768, 512, 20 (filters * (nb_layers + 2))
+    dense1 = dense_block(conv0, filters, 3, 'dense1', training)
+    pool1 = transition_down(dense1, dense1.get_shape()
+                            [-1], 'down1', training)  # 384, 256, 20
 
-    dense2 = dense_block(pool1, filters, 3, 'dense2', training)  # 384, 256, 16
-    pool2 = max_pooling2d(
-        dense2, (2, 2), (2, 2), padding='same', name='pool2')
+    dense2 = dense_block(pool1, filters, 4, 'dense2',
+                         training)  # 384 x 256 x 24
+    pool2 = transition_down(dense2, dense2.get_shape()
+                            [-1], 'down2', training)  # 192 x 128 x 24
 
     # conv3
-    dense3 = dense_block(pool2, filters, 3, 'dense3', training)  # 192, 128, 32
-    dense3 = self_attention(dense3, 48, scope='attention1')
-    pool3 = max_pooling2d(
-        dense3, (2, 2), (2, 2), padding='same', name='pool3')
+    dense3 = dense_block(pool2, filters, 5, 'dense3',
+                         training)  # 192 x 128 x 28
+    dense3 = self_attention(dense3, dense3.get_shape()[-1], scope='attention1')
+    pool3 = transition_down(dense3, dense3.get_shape()
+                            [-1], 'down3', training)  # 96 x 64 x 28
 
-    dense4 = dense_block(pool3, filters, 3, 'dense4', training)
-    dense4 = self_attention(dense4, 48, scope='attention2')
+    dense4 = dense_block(pool3, filters, 6, 'dense4', training)  # 96 x 64 x 32
+    dense4 = self_attention(dense4, dense4.get_shape()[-1], scope='attention2')
 
-    # # start up path here
-    up5 = deconv2d_x2_layer(dense4, 64)  # 96, 64, 64
-    up5 = tf.concat([dense3, up5], -1)  # 96, 64, 128
-    up5 = conv2d_layer(up5, 64, 3, 'up5')
+    # # Up path
+    up5 = transition_up(dense4, dense3.get_shape()
+                        [-1], 'up5', training)  # 192 x 128 x 28
+    up5 = self_attention(up5, up5.get_shape()[-1], scope='attention3')
+    up5 = tf.concat([dense3, up5], -1)  # 192 x 128 x 56
+    dense5 = dense_block(up5, filters, 5, 'dense5', training)  # 192 x 128 x 28
 
-    up6 = deconv2d_x2_layer(up5, 32)  # 192, 128, 32
-    up6 = tf.concat([dense2, up6], -1)  # 192, 128, 64
-    up6 = conv2d_layer(up6, 32, 3, 'up6')
+    up6 = transition_up(dense5, dense2.get_shape()
+                        [-1], 'up6', training)  # 384 x 256 x 24
+    up6 = tf.concat([dense2, up6], -1)  # 384 x 256 x 48
+    dense6 = dense_block(up6, filters, 4, 'dense6', training)  # 384 x 256 x 24
 
-    up7 = conv2d_transpose(
-        inputs=up6,
-        filters=8,
-        kernel_size=(4, 4),
-        strides=(2, 2),
-        padding='same',
-        kernel_initializer=kernel_initializer(),
-        kernel_regularizer=regularizer())  # 768, 512, 8
-    # up7 = tf.concat([rcl1, up7], -1)  # 768, 512, 16
-    up7 = conv2d_layer(up7, 8, 3, 'up7')
+    up7 = transition_up(dense6, dense1.get_shape()
+                        [-1], 'up7', training)  # 768 x 512 x 20
+    up7 = tf.concat([dense1, up7], -1)  # 768 x 512 x 40
+    dense7 = dense_block(up7, filters, 3, 'dense7', training)  # 768 x 512 x 20
+    up7 = conv2d_layer(dense7, 8, 3, 'up7_1')
 
     out = tf.layers.conv2d(up7,
-                                filters=num_classes,
-                                kernel_size=[1, 1],
-                                strides=[1, 1],
-                                padding='SAME',
-                                dilation_rate=[1, 1],
-                                activation=None,
-                                kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-                                name='last_conv1x1')
+                           filters=num_classes,
+                           kernel_size=[1, 1],
+                           strides=[1, 1],
+                           padding='SAME',
+                           dilation_rate=[1, 1],
+                           activation=None,
+                           kernel_initializer=kernel_initializer(),
+                           name='last_conv1x1')
     return out, _input
