@@ -24,7 +24,8 @@ KEEP_PROB = 0.75
 def conv_layer(input, filter, kernel, stride=1, layer_name="conv"):
     with tf.name_scope(layer_name):
         network = tf.layers.conv2d(
-            inputs=input, filters=filter, kernel_size=kernel, strides=stride, padding='SAME')
+            inputs=input, filters=filter, kernel_size=kernel, strides=stride, padding='SAME',
+            kernel_initializer=tf.contrib.layers.variance_scaling_initializer())
         return network
 
 
@@ -326,41 +327,47 @@ def dense_block(input_x, filters, nb_layers, layer_name, training=True):
 
         return x
 
+def transition_down(x, filters, layer_name, training=True):
+    with tf.name_scope(name):
+        x = Batch_Norm(x, training=training, scope=layer_name + '_bn')
+        x = Relu(x)
+        x = conv_layer(x, filter=filters, kernel=[1, 1], layer_name=layer_name + '_conv1')
+        x = Drop_out(x, rate=dropout_rate, training=training)
+        x = tf.nn.max_pool(x, [1, 2, 2, 1], [1, 2, 2, 1], padding='SAME', name=name+'_maxpool2x2')
+    return x
 
-def full_network(num_classes, filters=12, training=True):
+
+def full_network(num_classes, filters=6, training=True):
     _input = tf.placeholder(dtype=tf.float32, shape=[
                             None, 768, 512, 1], name='input_tensor')
 
     conv0 = conv_layer(_input, filter=2 * filters,
                        kernel=[3, 3], stride=1, layer_name='conv0')
 
-    dense1 = dense_block(conv0, filters, 4, 'dense1', training)  # 768, 512, 8
+    dense1 = dense_block(conv0, filters, 3, 'dense1', training)  # 768, 512, 8
     print('dense1', dense1.shape)
     pool1 = max_pooling2d(
         dense1, (2, 2), (2, 2), padding='same', name='pool1')
 
-    dense2 = dense_block(pool1, filters, 4, 'dense2', training)  # 384, 256, 16
-    print('dense2', dense2.shape)
+    dense2 = dense_block(pool1, filters, 3, 'dense2', training)  # 384, 256, 16
     pool2 = max_pooling2d(
         dense2, (2, 2), (2, 2), padding='same', name='pool2')
 
     # conv3
-    dense3 = dense_block(pool2, filters, 4, 'dense3', training)  # 192, 128, 32
-    print('dense3', dense3.shape)
+    dense3 = dense_block(pool2, filters, 3, 'dense3', training)  # 192, 128, 32
+    dense3 = self_attention(dense3, 48, scope='attention1')
     pool3 = max_pooling2d(
         dense3, (2, 2), (2, 2), padding='same', name='pool3')
 
-    dense4 = dense_block(pool3, filters, 4, 'dense4', training)
-    print('dense4', dense4.shape)
+    dense4 = dense_block(pool3, filters, 3, 'dense4', training)
+    dense4 = self_attention(dense4, 48, scope='attention2')
 
     # # start up path here
     up5 = deconv2d_x2_layer(dense4, 64)  # 96, 64, 64
-    print('up5', up5.shape)
     up5 = tf.concat([dense3, up5], -1)  # 96, 64, 128
     up5 = conv2d_layer(up5, 64, 3, 'up5')
 
     up6 = deconv2d_x2_layer(up5, 32)  # 192, 128, 32
-    print('up6', up6.shape)
     up6 = tf.concat([dense2, up6], -1)  # 192, 128, 64
     up6 = conv2d_layer(up6, 32, 3, 'up6')
 
@@ -374,7 +381,14 @@ def full_network(num_classes, filters=12, training=True):
         kernel_regularizer=regularizer())  # 768, 512, 8
     # up7 = tf.concat([rcl1, up7], -1)  # 768, 512, 16
     up7 = conv2d_layer(up7, 8, 3, 'up7')
-    print('up7', up7.shape)
 
-    out = conv2d_layer(up7, num_classes, 3, 'out')
+    out = tf.layers.conv2d(up7,
+                                filters=num_classes,
+                                kernel_size=[1, 1],
+                                strides=[1, 1],
+                                padding='SAME',
+                                dilation_rate=[1, 1],
+                                activation=None,
+                                kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
+                                name='last_conv1x1')
     return out, _input
