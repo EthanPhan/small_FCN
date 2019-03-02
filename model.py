@@ -166,15 +166,15 @@ def deconv2d_x2_layer(input, num_classes):
     return deconv
 
 
-def gated_attention(tensor, att_tensor, n_filters=512, kernel_size=[1, 1]):
-    g1 = conv2d(tensor, n_filters, kernel_size=kernel_size)
-    x1 = conv2d(att_tensor, n_filters, kernel_size=kernel_size)
-    net = add(g1, x1)
+def gated_attention(tensor, gate, n_filters, kernel_size=[1, 1]):
+    g1 = conv2d(gate, n_filters, kernel_size=kernel_size)
+    x1 = conv2d(tensor, n_filters, kernel_size=kernel_size)
+    net = tf.add(g1, x1)
     net = tf.nn.relu(net)
-    net = conv2d(net, 1, kernel_size=kernel_size)
+    net = conv2d(net, n_filters, kernel_size=kernel_size)
     net = tf.nn.sigmoid(net)
-    #net = tf.concat([att_tensor, net], axis=-1)
-    net = net * att_tensor
+    # net = tf.concat([att_tensor, net], axis=-1)
+    net = net * tensor
     return net
 
 
@@ -236,6 +236,16 @@ def bottleneck_layer(x, filters, scope, training=True):
         return x
 
 
+def dense_layer(x, filters, scope, training=True):
+    with tf.name_scope(scope):
+        x = Batch_Norm(x, training=training, scope=scope+'_batch1')
+        x = Relu(x)
+        x = conv_layer(x, filter=filters, kernel=[
+                       3, 3], layer_name=scope+'_conv1')
+        x = Drop_out(x, rate=dropout_rate, training=training)
+        return x
+
+
 def transition_layer(x, filters, scope, training=True):
     with tf.name_scope(scope):
         x = Batch_Norm(x, training=training, scope=scope+'_batch1')
@@ -252,14 +262,14 @@ def dense_block(input_x, filters, nb_layers, layer_name, training=True):
         layers_concat = list()
         layers_concat.append(input_x)
 
-        x = bottleneck_layer(
+        x = dense_layer(
             input_x, filters, scope=layer_name + '_bottleN_' + str(0))
 
         layers_concat.append(x)
 
         for i in range(nb_layers - 1):
             x = Concat(layers_concat)
-            x = bottleneck_layer(
+            x = dense_layer(
                 x, filters, scope=layer_name + '_bottleN_' + str(i + 1))
             layers_concat.append(x)
 
@@ -294,7 +304,7 @@ def transition_up(x, filters, layer_name, training=True):
         return x
 
 
-def full_network(num_classes, filters=4, training=True):
+def full_network(num_classes, filters=6, training=True):
     # # Down path
     _input = tf.placeholder(dtype=tf.float32, shape=[
                             None, 512, 448, 1], name='input_tensor')
@@ -326,17 +336,20 @@ def full_network(num_classes, filters=4, training=True):
     up5 = transition_up(dense4, dense3.get_shape()
                         [-1], 'up5', training)  # 192 x 128 x 28
     up5 = self_attention(up5, up5.get_shape()[-1], scope='attention3')
-    up5 = tf.concat([dense3, up5], -1)  # 192 x 128 x 56
+    g_dense3 = gated_attention(dense3, up5, dense3.get_shape()[-1])
+    up5 = tf.concat([g_dense3, up5], -1)  # 192 x 128 x 56
     dense5 = dense_block(up5, filters, 4, 'dense5', training)  # 192 x 128 x 28
 
     up6 = transition_up(dense5, dense2.get_shape()
                         [-1], 'up6', training)  # 384 x 256 x 24
-    up6 = tf.concat([dense2, up6], -1)  # 384 x 256 x 48
+    g_dense2 = gated_attention(dense2, up6, dense2.get_shape()[-1])
+    up6 = tf.concat([g_dense2, up6], -1)  # 384 x 256 x 48
     dense6 = dense_block(up6, filters, 3, 'dense6', training)  # 384 x 256 x 24
 
     up7 = transition_up(dense6, dense1.get_shape()
                         [-1], 'up7', training)  # 768 x 512 x 20
-    up7 = tf.concat([dense1, up7], -1)  # 768 x 512 x 40
+    g_dense1 = gated_attention(dense1, up7, dense1.get_shape()[-1])
+    up7 = tf.concat([g_dense1, up7], -1)  # 768 x 512 x 40
     dense7 = dense_block(up7, filters, 2, 'dense7', training)  # 768 x 512 x 20
     up7 = conv2d_layer(dense7, 8, 3, 'up7_1')
 
