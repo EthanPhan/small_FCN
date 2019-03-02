@@ -166,8 +166,7 @@ def deconv2d_x2_layer(input, num_classes):
     return deconv
 
 
-'''
-def attention(tensor, att_tensor, n_filters=512, kernel_size=[1, 1]):
+def gated_attention(tensor, att_tensor, n_filters=512, kernel_size=[1, 1]):
     g1 = conv2d(tensor, n_filters, kernel_size=kernel_size)
     x1 = conv2d(att_tensor, n_filters, kernel_size=kernel_size)
     net = add(g1, x1)
@@ -177,7 +176,6 @@ def attention(tensor, att_tensor, n_filters=512, kernel_size=[1, 1]):
     #net = tf.concat([att_tensor, net], axis=-1)
     net = net * att_tensor
     return net
-'''
 
 
 def hw_flatten(x):
@@ -299,29 +297,29 @@ def transition_up(x, filters, layer_name, training=True):
 def full_network(num_classes, filters=4, training=True):
     # # Down path
     _input = tf.placeholder(dtype=tf.float32, shape=[
-                            None, 768, 512, 1], name='input_tensor')
+                            None, 512, 448, 1], name='input_tensor')
 
     conv0 = conv_layer(_input, filter=2 * filters,
                        kernel=[3, 3], stride=1, layer_name='conv0')
 
     # 768, 512, 20 (filters * (nb_layers + 2))
-    dense1 = dense_block(conv0, filters, 3, 'dense1', training)
+    dense1 = dense_block(conv0, filters, 2, 'dense1', training)
     pool1 = transition_down(dense1, dense1.get_shape()
                             [-1], 'down1', training)  # 384, 256, 20
 
-    dense2 = dense_block(pool1, filters, 4, 'dense2',
+    dense2 = dense_block(pool1, filters, 3, 'dense2',
                          training)  # 384 x 256 x 24
     pool2 = transition_down(dense2, dense2.get_shape()
                             [-1], 'down2', training)  # 192 x 128 x 24
 
     # conv3
-    dense3 = dense_block(pool2, filters, 5, 'dense3',
+    dense3 = dense_block(pool2, filters, 4, 'dense3',
                          training)  # 192 x 128 x 28
     dense3 = self_attention(dense3, dense3.get_shape()[-1], scope='attention1')
     pool3 = transition_down(dense3, dense3.get_shape()
                             [-1], 'down3', training)  # 96 x 64 x 28
 
-    dense4 = dense_block(pool3, filters, 6, 'dense4', training)  # 96 x 64 x 32
+    dense4 = dense_block(pool3, filters, 5, 'dense4', training)  # 96 x 64 x 32
     dense4 = self_attention(dense4, dense4.get_shape()[-1], scope='attention2')
 
     # # Up path
@@ -329,17 +327,17 @@ def full_network(num_classes, filters=4, training=True):
                         [-1], 'up5', training)  # 192 x 128 x 28
     up5 = self_attention(up5, up5.get_shape()[-1], scope='attention3')
     up5 = tf.concat([dense3, up5], -1)  # 192 x 128 x 56
-    dense5 = dense_block(up5, filters, 5, 'dense5', training)  # 192 x 128 x 28
+    dense5 = dense_block(up5, filters, 4, 'dense5', training)  # 192 x 128 x 28
 
     up6 = transition_up(dense5, dense2.get_shape()
                         [-1], 'up6', training)  # 384 x 256 x 24
     up6 = tf.concat([dense2, up6], -1)  # 384 x 256 x 48
-    dense6 = dense_block(up6, filters, 4, 'dense6', training)  # 384 x 256 x 24
+    dense6 = dense_block(up6, filters, 3, 'dense6', training)  # 384 x 256 x 24
 
     up7 = transition_up(dense6, dense1.get_shape()
                         [-1], 'up7', training)  # 768 x 512 x 20
     up7 = tf.concat([dense1, up7], -1)  # 768 x 512 x 40
-    dense7 = dense_block(up7, filters, 3, 'dense7', training)  # 768 x 512 x 20
+    dense7 = dense_block(up7, filters, 2, 'dense7', training)  # 768 x 512 x 20
     up7 = conv2d_layer(dense7, 8, 3, 'up7_1')
 
     out = tf.layers.conv2d(up7,
