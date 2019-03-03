@@ -22,8 +22,8 @@ KEEP_PROB = 0.75
 
 
 def kernel_initializer():
-    return tf.contrib.layers.variance_scaling_initializer()
-    # return tf.contrib.layers.xavier_initializer()
+    # return tf.contrib.layers.variance_scaling_initializer()
+    return tf.contrib.layers.xavier_initializer()
 
 
 def conv_layer(input, filter, kernel, stride=1, layer_name="conv"):
@@ -167,11 +167,12 @@ def deconv2d_x2_layer(input, num_classes):
 
 
 def gated_attention(tensor, gate, n_filters, kernel_size=[1, 1]):
-    g1 = conv2d(gate, n_filters, kernel_size=kernel_size)
-    x1 = conv2d(tensor, n_filters, kernel_size=kernel_size)
+    g1 = conv_layer(gate, n_filters, kernel=kernel_size)
+    g1 = tf.image.resize_bilinear(g1, [tf.shape(tensor)[1], tf.shape(tensor)[2]])
+    x1 = conv_layer(tensor, n_filters, kernel=kernel_size)
     net = tf.add(g1, x1)
     net = tf.nn.relu(net)
-    net = conv2d(net, n_filters, kernel_size=kernel_size)
+    net = conv_layer(net, n_filters, kernel=kernel_size)
     net = tf.nn.sigmoid(net)
     # net = tf.concat([att_tensor, net], axis=-1)
     net = net * tensor
@@ -186,15 +187,12 @@ def self_attention(x, ch, scope='attention', reuse=False):
     batch_size, height, width, num_channels = tf.shape(
         x)[0], tf.shape(x)[1], tf.shape(x)[2], x.shape[-1]
     with tf.variable_scope(scope, reuse=reuse):
-        f = conv2d(x, ch // 8, kernel_size=(1, 1), strides=(1, 1), padding='same',
-                   kernel_initializer=kernel_initializer())
+        f = conv_layer(x, ch // 8, kernel=1)
         f = max_pooling2d(f, (2, 2), (2, 2), padding='same', name='poolf')
 
-        g = conv2d(x, ch // 8, kernel_size=(1, 1), strides=(1, 1), padding='same',
-                   kernel_initializer=kernel_initializer())  # [bs, h, w, c']
+        g = conv_layer(x, ch // 8, kernel=1)  # [bs, h, w, c']
 
-        h = conv2d(x, ch // 2, kernel_size=(1, 1), strides=(1, 1), padding='same',
-                   kernel_initializer=kernel_initializer())  # [bs, h, w, c]
+        h = conv_layer(x, ch // 2, kernel=1)  # [bs, h, w, c]
         h = max_pooling2d(h, (2, 2), (2, 2), padding='same', name='poolh')
 
         # N = h * w
@@ -209,8 +207,7 @@ def self_attention(x, ch, scope='attention', reuse=False):
 
         o = tf.reshape(o, shape=[batch_size, height,
                                  width, ch // 2])  # [bs, h, w, C]
-        o = conv2d(x, num_channels, kernel_size=(1, 1), strides=(1, 1), padding='same',
-                   kernel_initializer=kernel_initializer())  # [bs, h, w, c]
+        o = conv_layer(x, num_channels, kernel=1)  # [bs, h, w, c]
         x = gamma * o + x
 
     return x
@@ -304,7 +301,68 @@ def transition_up(x, filters, layer_name, training=True):
         return x
 
 
-def full_network(num_classes, filters=6, training=True):
+def full_network(num_classes, filters=8, training=True):
+    # # Down path
+    _input = tf.placeholder(dtype=tf.float32, shape=[
+                            None, 512, 448, 1], name='input_tensor')
+
+    conv0 = conv_layer(_input, filter=filters,
+                       kernel=[3, 3], stride=1, layer_name='conv0')
+
+    # 768, 512, 20 (filters * (nb_layers + 2))
+    dense1 = dense_block(conv0, filters, 2, 'dense1', training)
+    pool1 = transition_down(dense1, dense1.get_shape()
+                            [-1], 'down1', training)  # 384, 256, 20
+
+    dense2 = dense_block(pool1, 2 * filters, 2, 'dense2',
+                         training)  # 384 x 256 x 24
+    pool2 = transition_down(dense2, dense2.get_shape()
+                            [-1], 'down2', training)  # 192 x 128 x 24
+
+    # conv3
+    dense3 = dense_block(pool2, 3 * filters, 2, 'dense3',
+                         training)  # 192 x 128 x 28
+    dense3 = self_attention(dense3, dense3.get_shape()[-1], scope='attention1')
+    pool3 = transition_down(dense3, dense3.get_shape()
+                            [-1], 'down3', training)  # 96 x 64 x 28
+
+    dense4 = dense_block(pool3, 4 * filters, 2, 'dense4', training)  # 96 x 64 x 32
+    dense4 = self_attention(dense4, dense4.get_shape()[-1], scope='attention2')
+
+    # # Up path
+    up5 = transition_up(dense4, dense3.get_shape()
+                        [-1], 'up5', training)  # 192 x 128 x 28
+    up5 = self_attention(up5, up5.get_shape()[-1], scope='attention3')
+    g_dense3 = gated_attention(dense3, dense4, dense3.get_shape()[-1])
+    up5 = tf.concat([dense3, up5], -1)  # 192 x 128 x 56
+    dense5 = dense_block(up5, 3 * filters, 2, 'dense5', training)  # 192 x 128 x 28
+
+    up6 = transition_up(dense5, dense2.get_shape()
+                        [-1], 'up6', training)  # 384 x 256 x 24
+    g_dense2 = gated_attention(dense2, dense5, dense2.get_shape()[-1])
+    up6 = tf.concat([dense2, up6], -1)  # 384 x 256 x 48
+    dense6 = dense_block(up6, 2 * filters, 2, 'dense6', training)  # 384 x 256 x 24
+
+    up7 = transition_up(dense6, dense1.get_shape()
+                        [-1], 'up7', training)  # 768 x 512 x 20
+    g_dense1 = gated_attention(dense1, dense6, dense1.get_shape()[-1])
+    up7 = tf.concat([dense1, up7], -1)  # 768 x 512 x 40
+    dense7 = dense_block(up7, filters, 2, 'dense7', training)  # 768 x 512 x 20
+    up7 = conv_layer(dense7, 8, kernel=1)
+
+    out = tf.layers.conv2d(up7,
+                           filters=num_classes,
+                           kernel_size=[1, 1],
+                           strides=[1, 1],
+                           padding='SAME',
+                           dilation_rate=[1, 1],
+                           activation=None,
+                           kernel_initializer=kernel_initializer(),
+                           name='last_conv1x1')
+    return out, _input
+
+
+def cu_net(num_classes, filters=6, training=True):
     # # Down path
     _input = tf.placeholder(dtype=tf.float32, shape=[
                             None, 512, 448, 1], name='input_tensor')
@@ -336,24 +394,25 @@ def full_network(num_classes, filters=6, training=True):
     up5 = transition_up(dense4, dense3.get_shape()
                         [-1], 'up5', training)  # 192 x 128 x 28
     up5 = self_attention(up5, up5.get_shape()[-1], scope='attention3')
-    g_dense3 = gated_attention(dense3, up5, dense3.get_shape()[-1])
+    g_dense3 = gated_attention(dense3, dense4, dense3.get_shape()[-1])
     up5 = tf.concat([g_dense3, up5], -1)  # 192 x 128 x 56
     dense5 = dense_block(up5, filters, 4, 'dense5', training)  # 192 x 128 x 28
 
     up6 = transition_up(dense5, dense2.get_shape()
                         [-1], 'up6', training)  # 384 x 256 x 24
-    g_dense2 = gated_attention(dense2, up6, dense2.get_shape()[-1])
+    g_dense2 = gated_attention(dense2, dense5, dense2.get_shape()[-1])
     up6 = tf.concat([g_dense2, up6], -1)  # 384 x 256 x 48
     dense6 = dense_block(up6, filters, 3, 'dense6', training)  # 384 x 256 x 24
 
     up7 = transition_up(dense6, dense1.get_shape()
                         [-1], 'up7', training)  # 768 x 512 x 20
-    g_dense1 = gated_attention(dense1, up7, dense1.get_shape()[-1])
+    g_dense1 = gated_attention(dense1, dense6, dense1.get_shape()[-1])
     up7 = tf.concat([g_dense1, up7], -1)  # 768 x 512 x 40
     dense7 = dense_block(up7, filters, 2, 'dense7', training)  # 768 x 512 x 20
-    up7 = conv2d_layer(dense7, 8, 3, 'up7_1')
 
-    out = tf.layers.conv2d(up7,
+    # # Output path
+    out = conv2d_layer(dense7, 8, 3, 'up7_1')
+    out = tf.layers.conv2d(out,
                            filters=num_classes,
                            kernel_size=[1, 1],
                            strides=[1, 1],
