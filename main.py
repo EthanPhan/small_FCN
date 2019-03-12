@@ -23,7 +23,7 @@ else:
 
 
 EPOCHS = 100000
-BATCH_SIZE = 2
+BATCH_SIZE = 4
 LR = 0.0003
 
 

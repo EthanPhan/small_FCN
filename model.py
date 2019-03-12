@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.layers import conv2d, conv2d_transpose, max_pooling2d
+from tensorflow.layers import conv2d, conv2d_transpose, max_pooling2d, average_pooling2d
 from tensorflow.contrib.framework import arg_scope
 from tensorflow.contrib.layers import batch_norm, flatten
 from distutils.version import LooseVersion
@@ -124,11 +124,11 @@ def conv2d_layer(inp_tensor, num_kernels, kernel_size, name, reuse=None):
     return conv
 
 
-def rcl(X, num_kernels, kernel_size, scope_name=None):
+def rcl(X, num_kernels, kernel_size, scope_name=None, num_layers=3):
     with tf.variable_scope(scope_name) as scope:
         input = conv2d_layer(X, num_kernels, kernel_size, 'input')
 
-        for i in range(3):
+        for i in range(num_layers):
             reuse = (i > 0)
             conv = conv2d_layer(input, num_kernels, kernel_size,
                                 'rcl', reuse)
@@ -211,6 +211,154 @@ def self_attention(x, ch, scope='attention', reuse=False):
         x = gamma * o + x
 
     return x
+
+
+def self_attention_4(x, ch, scope='attention', reuse=False):
+    batch_size, height, width, num_channels = tf.shape(
+        x)[0], tf.shape(x)[1], tf.shape(x)[2], x.shape[-1]
+    with tf.variable_scope(scope, reuse=reuse):
+        f = conv_layer(x, ch // 8, kernel=1)
+        f = average_pooling2d(f, (4, 4), (4, 4), padding='same', name='poolf')
+
+        g = conv_layer(x, ch // 8, kernel=1)  # [bs, h, w, c']
+
+        h = conv_layer(x, ch // 2, kernel=1)  # [bs, h, w, c]
+        h = average_pooling2d(h, (4, 4), (4, 4), padding='same', name='poolh')
+
+        # N = h * w
+        s = tf.matmul(hw_flatten(g), hw_flatten(
+            f), transpose_b=True)  # [bs, N, N]
+
+        beta = tf.nn.softmax(s)  # attention map
+
+        o = tf.matmul(beta, hw_flatten(h))  # [bs, N, C]
+        gamma = tf.get_variable(
+            "gamma", [1], initializer=tf.constant_initializer(0.0))
+
+        o = tf.reshape(o, shape=[batch_size, height,
+                                 width, ch // 2])  # [bs, h, w, C]
+        o = conv_layer(x, num_channels, kernel=1)  # [bs, h, w, c]
+        x = gamma * o + x
+
+    return x
+
+
+def full_network(num_classes, training=True):
+    _input = tf.placeholder(dtype=tf.float32, shape=[
+                            None, 512, 448, 1], name='input_tensor')
+
+    # conv1
+    rcl1 = rcl(_input, 8, 3, 'rcl1')  # 768, 512, 32
+    rcl1 = self_attention_4(rcl1, rcl1.get_shape()[-1], scope='attention1')
+    pool1 = tf.layers.max_pooling2d(
+        rcl1, (2, 2), (2, 2), padding='same', name='pool1')
+
+    # conv2
+    rcl2 = rcl(pool1, 16, 3, 'rcl2')  # 384, 256, 64
+    rcl2 = self_attention_4(rcl2, rcl2.get_shape()[-1], scope='attention2')
+    pool2 = tf.layers.max_pooling2d(
+        rcl2, (2, 2), (2, 2), padding='same', name='pool2')
+
+    # conv3
+    rcl3 = rcl(pool2, 32, 3, 'rcl3')  # 192, 128, 128
+    rcl3 = self_attention(rcl3, rcl3.get_shape()[-1], scope='attention3')
+    pool3 = tf.layers.max_pooling2d(
+        rcl3, (2, 2), (2, 2), padding='same', name='pool3')
+
+    # conv4
+    rcl4 = rcl(pool3, 64, 3, 'rcl4')  # 96, 64, 256
+    rcl4 = self_attention(rcl4, rcl4.get_shape()[-1], scope='attention4')
+    pool4 = tf.layers.max_pooling2d(
+        rcl4, (2, 2), (2, 2), padding='same', name='pool4')
+
+    # fc5
+    fc5 = rcl(pool4, 128, 3, 'fc5', 4)  # 48, 32, 512
+    fc5 = self_attention(fc5, fc5.get_shape()[-1], scope='attention5')
+    drop5 = tf.layers.dropout(fc5, rate=1 - KEEP_PROB,
+                              training=training)  # 48, 32, 512
+
+    # Deconv layers
+    deconv6 = deconv2d_x2_layer(drop5, 16 * num_classes)  # 96, 64, num_classes
+    deconv6 = self_attention(deconv6, deconv6.get_shape()[-1], scope='attention6')
+    concat6 = tf.concat([rcl4, deconv6], -1)  # 96, 64, num_classes
+
+    deconv7 = deconv2d_x2_layer(concat6, 8 * num_classes)  # 192, 128, num_classes
+    deconv7 = self_attention(deconv7, deconv7.get_shape()[-1], scope='attention7')
+    concat7 = tf.concat([rcl3, deconv7], -1)  # 192, 128, num_classes
+
+    deconv8 = deconv2d_x2_layer(concat7, 4 * num_classes)  # 192, 128, num_classes
+    deconv8 = self_attention(deconv8, deconv8.get_shape()[-1], scope='attention8')
+    res_lv2 = rcl(rcl2, 4 * num_classes, 3, 'res_lv2')  # 96, 64, 256
+    concat8 = tf.concat([res_lv2, deconv8], -1)  # 192, 128, num_classes
+
+    deconv9 = deconv2d_x2_layer(concat8, 4 * num_classes)  # 192, 128, num_classes
+    res_lv1 = rcl(rcl1, 4 * num_classes, 3, 'res_lv1')  # 96, 64, 256
+    res_lv1 = rcl(res_lv1, 4 * num_classes, 3, 'res_lv1_2')  # 96, 64, 256
+    concat9 = tf.concat([res_lv1, deconv9], -1)  # 192, 128, num_classes
+
+    # # 2nd unet
+    u2_in = tf.concat([rcl1, concat9], -1)  # 192, 128, num_classes
+    u2_rcl1 = rcl(u2_in, 8, 3, 'u2_rcl1')  # 768, 512, 32
+    u2_rcl1 = self_attention_4(u2_rcl1, u2_rcl1.get_shape()[-1], scope='u2_attention1')
+    u2_pool1 = tf.layers.max_pooling2d(
+        u2_rcl1, (2, 2), (2, 2), padding='same', name='u2_pool1')
+
+    # conv2
+    u2_rcl2 = tf.concat([rcl2, u2_pool1], -1)
+    u2_rcl2 = rcl(u2_rcl2, 16, 3, 'u2_rcl2')  # 384, 256, 64
+    u2_rcl2 = self_attention_4(u2_rcl2, u2_rcl2.get_shape()[-1], scope='u2_attention2')
+    u2_pool2 = tf.layers.max_pooling2d(
+        u2_rcl2, (2, 2), (2, 2), padding='same', name='u2_pool2')
+
+    # conv3
+    u2_rcl3 = tf.concat([rcl3, u2_pool2], -1)
+    u2_rcl3 = rcl(u2_rcl3, 32, 3, 'u2_rcl3')  # 192, 128, 128
+    u2_rcl3 = self_attention(u2_rcl3, u2_rcl3.get_shape()[-1], scope='u2_attention3')
+    u2_pool3 = tf.layers.max_pooling2d(
+        u2_rcl3, (2, 2), (2, 2), padding='same', name='u2_pool3')
+
+    # conv4
+    u2_rcl4 = tf.concat([rcl4, u2_pool3], -1)
+    u2_rcl4 = rcl(u2_rcl4, 64, 3, 'u2_rcl4')  # 96, 64, 256
+    u2_rcl4 = self_attention(u2_rcl4, u2_rcl4.get_shape()[-1], scope='u2_attention4')
+    u2_pool4 = tf.layers.max_pooling2d(
+        u2_rcl4, (2, 2), (2, 2), padding='same', name='u2_pool4')
+
+    # fc5
+    u2_fc5 = tf.concat([fc5, u2_pool4], -1)
+    u2_fc5 = rcl(u2_fc5, 128, 3, 'u2_fc5', 4)  # 48, 32, 512
+    u2_fc5 = self_attention(u2_fc5, u2_fc5.get_shape()[-1], scope='u2_attention5')
+    u2_drop5 = tf.layers.dropout(u2_fc5, rate=1 - KEEP_PROB,
+                              training=training)  # 48, 32, 512
+
+    # Deconv layers
+    #u2_deconv6 = tf.concat([deconv6, u2_drop5], -1)
+    u2_deconv6 = deconv2d_x2_layer(u2_drop5, 16 * num_classes)  # 96, 64, num_classes
+    u2_deconv6 = self_attention(u2_deconv6, u2_deconv6.get_shape()[-1], scope='u2_attention6')
+    u2_concat6 = tf.concat([deconv6, u2_rcl4, u2_deconv6], -1)  # 96, 64, num_classes
+
+    #u2_deconv7 = tf.concat([deconv7, u2_concat6], -1)
+    u2_deconv7 = deconv2d_x2_layer(u2_concat6, 8 * num_classes)  # 192, 128, num_classes
+    u2_deconv7 = self_attention(u2_deconv7, u2_deconv7.get_shape()[-1], scope='u2_attention7')
+    u2_concat7 = tf.concat([deconv7, u2_rcl3, u2_deconv7], -1)  # 192, 128, num_classes
+
+    # u2_deconv8 = tf.concat([deconv8, u2_concat7], -1)
+    u2_deconv8 = deconv2d_x2_layer(u2_concat7, 4 * num_classes)  # 192, 128, num_classes
+    u2_res_lv2 = rcl(u2_rcl2, 4 * num_classes, 3, 'u2_res_lv2')  # 96, 64, 256
+    u2_concat8 = tf.concat([deconv8, u2_res_lv2, u2_deconv8], -1)  # 192, 128, num_classes
+
+    #u2_deconv9 = tf.concat([deconv9, u2_concat8], -1)
+    u2_deconv9 = deconv2d_x2_layer(u2_concat8, 4 * num_classes)  # 192, 128, num_classes
+    u2_res_lv1 = rcl(u2_rcl1, 4 * num_classes, 3, 'u2_res_lv1')  # 96, 64, 256
+    u2_res_lv1 = rcl(u2_res_lv1, 4 * num_classes, 3, 'u2_res_lv1_2')  # 96, 64, 256
+    u2_concat9 = tf.concat([deconv9, u2_res_lv1, u2_deconv9], -1)  # 192, 128, num_classes
+
+    # # Classifier
+    out = conv2d_layer(u2_concat9, 4 * num_classes, 3, 'out1')  # 48, 32, 512
+    out = conv2d_layer(out, 2 * num_classes, 3, 'out2')  # 48, 32, 512
+    out = conv_layer(out, num_classes, 1, stride=1, layer_name="out3")
+
+    return out, _input
 
 
 # for dense unet here
@@ -301,7 +449,7 @@ def transition_up(x, filters, layer_name, training=True):
         return x
 
 
-def full_network(num_classes, filters=8, training=True):
+def full_network_(num_classes, filters=8, training=True):
     # # Down path
     _input = tf.placeholder(dtype=tf.float32, shape=[
                             None, 512, 448, 1], name='input_tensor')
@@ -326,7 +474,7 @@ def full_network(num_classes, filters=8, training=True):
     pool3 = transition_down(dense3, dense3.get_shape()
                             [-1], 'down3', training)  # 96 x 64 x 28
 
-    dense4 = dense_block(pool3, 4 * filters, 2, 'dense4', training)  # 96 x 64 x 32
+    dense4 = dense_block(pool3, 16 * filters, 2, 'dense4', training)  # 96 x 64 x 32
     dense4 = self_attention(dense4, dense4.get_shape()[-1], scope='attention2')
 
     # # Up path
