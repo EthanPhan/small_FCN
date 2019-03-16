@@ -25,7 +25,7 @@ else:
 
 
 EPOCHS = 100000
-BATCH_SIZE = 4
+BATCH_SIZE = 1
 LR = 0.0003
 CLASSES = ['None', "partner_code", "contact_document_number", "issued_date",
            "car_number", "amount_including_tax", "amount_excluding_tax", "item_name"]
@@ -102,7 +102,7 @@ def run_train(sess, training_steps, batch_size, get_batches_fn, train_op, cross_
             sample = sample + batch_size
             print("#%4d  (%10d): %.20f" % (iteration, sample, loss))
 
-            if iteration % 5 == 0:
+            if iteration % 100 == 0:
                 saver.save(sess, os.path.join('checkpoints',
                                               'fcn'), global_step=gl_step)
                 img = label_2_image(image[0], pred[0])
