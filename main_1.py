@@ -7,6 +7,7 @@ import numpy as np
 import sys
 import cv2
 import glob
+import json
 from scipy import misc
 from model import full_network
 from data_augment import gen_batch_function, label_2_image, get_image_n_label
@@ -56,7 +57,7 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     c1_loss_w = 4
     c2_loss_w = 1 * c1_loss_w
     # classes_weights = tf.constant([c0_loss_w, c1_loss_w, c2_loss_w])
-    classes_weights = tf.constant([0.02, 5, 5, 5, 5, 5, 5, 2])
+    classes_weights = tf.constant([0.02, 3, 3, 3, 3, 3, 3, 2])
     loss = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(
         targets=tf.cast(labels, tf.float32), logits=logits, pos_weight=classes_weights))
 
@@ -171,7 +172,7 @@ def infer(input_img, input_json):
         json_ct = json.load(f)
 
     # load image
-    image = misc.imread(input_img)
+    image = misc.imread(input_img,mode='RGB')
     with open('data/toyota/Corpus/corpus.json') as fh:
         corpus = json.load(fh)
 
@@ -180,23 +181,24 @@ def infer(input_img, input_json):
     with tf.Session() as sess:
         # labels = tf.placeholder(tf.int32)
         logits, _input = full_network(num_classes, training=False)
-        logits = tf.reshape(logits, (-1, num_classes))
+        #logits = tf.reshape(logits, (-1, num_classes))
 
         sess.run(tf.global_variables_initializer())
 
         saver = tf.train.Saver()
         _check_restore_parameters(sess, saver)
 
-        pred = sess.run([tf.nn.softmax(logits)], {
-            _input: [img]})
-        img = label_2_image(img, pred[0])
+        #pred = sess.run([tf.nn.softmax(logits)], {_input: [img]})
+        pred = sess.run([logits], {_input: [img]})
+
+        img = label_2_image(img, pred[0][0])
         cv2.imwrite("output.jpg", np.array(img))
 
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
         img_file = sys.argv[1]
-        img = cv2.imread(img_file)
-        infer(img)
+        json_file = sys.argv[2]
+        infer(img_file, json_file)
     else:
         train()
