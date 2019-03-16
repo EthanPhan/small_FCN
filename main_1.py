@@ -7,9 +7,9 @@ import numpy as np
 import sys
 import cv2
 import glob
-import scipy
+from scipy import misc
 from model import full_network
-from data_augment import gen_batch_function, label_2_image
+from data_augment import gen_batch_function, label_2_image, get_image_n_label
 
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion(
@@ -29,6 +29,7 @@ BATCH_SIZE = 1
 LR = 0.0003
 CLASSES = ['None', "partner_code", "contact_document_number", "issued_date",
            "car_number", "amount_including_tax", "amount_excluding_tax", "item_name"]
+IMG_SIZE = (512, 448)
 
 
 def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
@@ -132,14 +133,12 @@ def train():
     if len(sys.argv) > 3:
         KEEP_PROB = float(sys.argv[3])
     num_classes = len(CLASSES)
-    image_shape = (512, 448)
+    image_shape = IMG_SIZE
 
     train_jsons = glob.glob('data/toyota/train/jsons/*.json')
     train_imgs = glob.glob('data/toyota/train/org_imgs/*.jpg')
 
     with tf.Session() as sess:
-        # Path to vgg model
-        # vgg_path = os.path.join(data_dir, 'vgg')
         # Create function to get batches
         get_batches_fn = gen_batch_function(
             train_jsons, train_imgs, image_shape, BATCH_SIZE)
@@ -163,16 +162,23 @@ def train():
                   cross_entropy_loss, _input, last_layer, correct_label, learning_rate, saver, gl_step)
 
 
-def infer(input_img):
-    num_classes = 3
-    image_shape = (512, 448)
-    data_dir = './data'
+def infer(input_img, input_json):
+    num_classes = len(CLASSES)
+    image_shape = IMG_SIZE
+
+    # Load json
+    with open(input_json, 'r') as f:
+        json_ct = json.load(f)
+
+    # load image
+    image = misc.imread(input_img)
+    with open('data/toyota/Corpus/corpus.json') as fh:
+        corpus = json.load(fh)
+
+    img, gt = get_image_n_label(json_ct, image, corpus)
+
     with tf.Session() as sess:
-        get_batches_fn = helper.gen_batch_function(
-            os.path.join(data_dir, 'data_date/training'), image_shape)
-        # for image, image_c in get_batches_fn(1):
-        image = scipy.misc.imresize(input_img, image_shape)
-        labels = tf.placeholder(tf.int32)
+        # labels = tf.placeholder(tf.int32)
         logits, _input = full_network(num_classes, training=False)
         logits = tf.reshape(logits, (-1, num_classes))
 
@@ -181,40 +187,10 @@ def infer(input_img):
         saver = tf.train.Saver()
         _check_restore_parameters(sess, saver)
 
-        img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        img = np.expand_dims(img, axis=2)
-        im_softmax = sess.run([tf.nn.softmax(logits)], {
+        pred = sess.run([tf.nn.softmax(logits)], {
             _input: [img]})
-
-        c1_softmax = im_softmax[0][:, 1].reshape(
-            image_shape[0], image_shape[1])
-        c2_softmax = im_softmax[0][:, 2].reshape(
-            image_shape[0], image_shape[1])
-
-        segmentation_1 = (c1_softmax > 0.5).reshape(
-            image_shape[0], image_shape[1], 1)
-        segmentation_2 = (c2_softmax > 0.5).reshape(
-            image_shape[0], image_shape[1], 1)
-        mask_1 = np.dot(segmentation_1, np.array([[255, 0, 0, 127]]))
-        mask_2 = np.dot(segmentation_2, np.array([[0, 0, 255, 127]]))
-        mask_full_1 = scipy.misc.imresize(mask_1, input_img.shape)
-        mask_full_2 = scipy.misc.imresize(mask_2, input_img.shape)
-        mask_full_1 = scipy.misc.toimage(mask_full_1, mode="RGBA")
-        mask_full_2 = scipy.misc.toimage(mask_full_2, mode="RGBA")
-        mask_1 = scipy.misc.toimage(mask_1, mode="RGBA")
-        mask_2 = scipy.misc.toimage(mask_2, mode="RGBA")
-
-        # street_im = scipy.misc.toimage(image)
-        # street_im.paste(mask, box=None, mask=mask)
-
-        im_full = scipy.misc.toimage(input_img)
-        im_full.paste(mask_full_1, box=None, mask=mask_full_1)
-        im_full.paste(mask_full_2, box=None, mask=mask_full_2)
-
-        cv2.imwrite("output.jpg", np.array(im_full))
-        cv2.imwrite("mask_1.jpg", np.array(mask_full_1))
-        cv2.imwrite("mask_2.jpg", np.array(mask_full_2))
-        exit(0)
+        img = label_2_image(img, pred[0])
+        cv2.imwrite("output.jpg", np.array(img))
 
 
 if __name__ == '__main__':
