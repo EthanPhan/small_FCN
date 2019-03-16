@@ -301,6 +301,16 @@ def label_2_image(img, label):
     return img
 
 
+def _augment_translate(img, gt):
+    x = random.randint(-50, 50)
+    y = random.randint(-80, 80)
+    img = np.roll(img, shift=x, axis=1)
+    gt = np.roll(gt, shift=x, axis=1)
+    img = np.roll(img, shift=y, axis=0)
+    gt = np.roll(gt, shift=y, axis=0)
+    return img, gt
+
+
 def gen_batch_function(json_paths, img_paths, img_size, batch_size, corpus_path='data/toyota/Corpus/corpus.json'):
     """
     Generate function to create batches of training data
@@ -338,8 +348,9 @@ def gen_batch_function(json_paths, img_paths, img_size, batch_size, corpus_path=
                     json_ct = json.load(f)
 
                 # load image
-                image = misc.imread(image_file)
+                image = misc.imread(image_file, mode='RGB')
                 img, gt = get_image_n_label(json_ct, image, corpus)
+                img, gt = _augment_translate(img, gt)
                 images.append(img)
                 gt_images.append(gt)
 

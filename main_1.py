@@ -70,7 +70,7 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
 # tests.test_optimize(optimize)
 
 
-def run_train(sess, training_steps, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
+def run_train(sess, training_steps, batch_size, train_batches_fn, test_batches_fn, train_op, cross_entropy_loss, input_image,
               model_out, correct_label, learning_rate, saver, gl_step):
     """
     Train neural network and print out the loss during training.
@@ -92,7 +92,7 @@ def run_train(sess, training_steps, batch_size, get_batches_fn, train_op, cross_
     iteration = gl_step.eval()
     epoch = 0
     while True:
-        for image, image_c in get_batches_fn(batch_size):
+        for image, image_c in train_batches_fn(batch_size):
             _, loss, pred = sess.run([train_op, cross_entropy_loss, model_out], feed_dict={
                 input_image: image,
                 correct_label: image_c,
@@ -102,15 +102,25 @@ def run_train(sess, training_steps, batch_size, get_batches_fn, train_op, cross_
             loss_plot.append(loss)
             iteration += 1
             sample = sample + batch_size
-            print("#%4d  (%10d): %.20f" % (iteration, sample, loss))
 
-            if iteration % 100 == 0:
+            if iteration % 300 == 0:
                 saver.save(sess, os.path.join('checkpoints',
                                               'fcn'), global_step=gl_step)
                 img = label_2_image(image[0], pred[0])
                 cv2.imwrite("train_debug.jpg", np.array(img))
 
-        print("%4d Loss: %f" % (epoch, loss))
+        eval_sample = 0
+        eval_loss = 0
+        for image, image_c in test_batches_fn(batch_size):
+            loss = sess.run([cross_entropy_loss], feed_dict={
+                input_image: image,
+                correct_label: image_c,
+                learning_rate: LR
+            })
+            eval_loss += loss
+            eval_sample += batch_size
+
+        print("%4d eval Loss: %f" % (epoch, eval_loss))
         epoch += 1
 
 
@@ -138,11 +148,15 @@ def train():
 
     train_jsons = glob.glob('data/toyota/train/jsons/*.json')
     train_imgs = glob.glob('data/toyota/train/org_imgs/*.jpg')
+    test_jsons = glob.glob('data/toyota/test/jsons/*.json')
+    test_imgs = glob.glob('data/toyota/test/org_imgs/*.jpg')
 
     with tf.Session() as sess:
         # Create function to get batches
-        get_batches_fn = gen_batch_function(
+        train_batches_fn = gen_batch_function(
             train_jsons, train_imgs, image_shape, BATCH_SIZE)
+        test_batches_fn = gen_batch_function(
+            test_jsons, test_imgs, image_shape, BATCH_SIZE)
 
         correct_label = tf.placeholder(tf.int32)
         learning_rate = tf.placeholder(tf.float32)
@@ -159,7 +173,7 @@ def train():
 
         # train_nn(sess, EPOCHS, BATCH_SIZE, get_batches_fn, train_op,
         #          cross_entropy_loss, _input, correct_label, keep_prob, learning_rate, saver, gl_step)
-        run_train(sess, EPOCHS, BATCH_SIZE, get_batches_fn, train_op,
+        run_train(sess, EPOCHS, BATCH_SIZE, train_batches_fn, test_batches_fn, train_op,
                   cross_entropy_loss, _input, last_layer, correct_label, learning_rate, saver, gl_step)
 
 
@@ -172,7 +186,7 @@ def infer(input_img, input_json):
         json_ct = json.load(f)
 
     # load image
-    image = misc.imread(input_img,mode='RGB')
+    image = misc.imread(input_img, mode='RGB')
     with open('data/toyota/Corpus/corpus.json') as fh:
         corpus = json.load(fh)
 
