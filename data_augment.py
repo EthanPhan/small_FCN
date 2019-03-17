@@ -251,7 +251,7 @@ def resize_json(parsed_json, src_size, dst_size=IMG_SIZE):
     return ret
 
 
-CLASSES = ['None', "partner_code", "contact_document_number", "issued_date",
+CLASSES = ["partner_code", "contact_document_number", "issued_date",
            "car_number", "amount_including_tax", "amount_excluding_tax", "item_name"]
 
 
@@ -263,6 +263,7 @@ def get_image_n_label(json_file, img_file, corpus, name=''):
     char_vec = np.zeros(
         (IMG_SIZE[0], IMG_SIZE[1], len(corpus)), dtype=np.float)
     label = np.zeros((IMG_SIZE[0], IMG_SIZE[1], len(CLASSES)), dtype=np.float)
+    aux_label = np.zeros((IMG_SIZE[0], IMG_SIZE[1], 1), dtype=np.float)
 
     # embed text from json into the image
     for k, it in resized_json.items():
@@ -276,12 +277,16 @@ def get_image_n_label(json_file, img_file, corpus, name=''):
             char_vec[y:y+h, x:x+w, corpus.index(c[0])] = 1
         x, y, w, h = it.get('location')
         lb = it.get('label')
+        it_t = it.get('type')
         if lb not in CLASSES:
             continue
-        label[y:y+h, x:x+w, CLASSES.index(lb)] = 1
+        if it_t == 'value':
+            label[y:y+h, x:x+w, CLASSES.index(lb)] = 1
+        else:
+            aux_label[y:y+h, x:x+w, 0] = 1
 
     image = np.concatenate((resized_img, char_vec), axis=-1)
-    return image, label
+    return image, label, aux_label
 
 
 def label_2_image(img, label):
@@ -301,14 +306,16 @@ def label_2_image(img, label):
     return img
 
 
-def _augment_translate(img, gt):
+def _augment_translate(img, gt, aux_gt):
     x = random.randint(-40, 40)
     y = random.randint(-60, 60)
     img = np.roll(img, shift=x, axis=1)
     gt = np.roll(gt, shift=x, axis=1)
+    aux_gt = np.roll(aux_gt, shift=x, axis=1)
     img = np.roll(img, shift=y, axis=0)
     gt = np.roll(gt, shift=y, axis=0)
-    return img, gt
+    aux_gt = np.roll(aux_gt, shift=y, axis=0)
+    return img, gt, aux_gt
 
 
 def gen_batch_function(json_paths, img_paths, img_size, batch_size, corpus_path='data/toyota/Corpus/corpus.json'):
@@ -336,6 +343,7 @@ def gen_batch_function(json_paths, img_paths, img_size, batch_size, corpus_path=
         random.shuffle(img_paths)
         images = []
         gt_images = []
+        aux_gt_images = []
         for batch_i in range(0, len(json_paths), batch_size):
             for json_file in json_paths[batch_i:batch_i+batch_size]:
                 try:
@@ -349,15 +357,17 @@ def gen_batch_function(json_paths, img_paths, img_size, batch_size, corpus_path=
 
                 # load image
                 image = misc.imread(image_file, mode='RGB')
-                img, gt = get_image_n_label(json_ct, image, corpus)
-                img, gt = _augment_translate(img, gt)
+                img, gt, aux_gt = get_image_n_label(json_ct, image, corpus)
+                img, gt, aux_gt = _augment_translate(img, gt, aux_gt)
                 images.append(img)
                 gt_images.append(gt)
+                aux_gt_images.append(aux_gt)
 
                 if len(images) >= batch_size:
-                    yield np.array(images), np.array(gt_images)
+                    yield np.array(images), np.array(gt_images), np.array(aux_gt_images)
                     images = []
                     gt_images = []
+                    aux_gt_images = []
     return get_batches_fn
 
 

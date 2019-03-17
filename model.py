@@ -306,6 +306,11 @@ def full_network(num_classes, training=True):
     res_lv1 = rcl(res_lv1, 4 * num_classes, 3, 'res_lv1_2')  # 96, 64, 256
     concat9 = tf.concat([res_lv1, deconv9], -1)  # 192, 128, num_classes
 
+    # # Classifier #1
+    out_0 = conv2d_layer(concat9, 4 * num_classes, 3, 'cls0')  # 48, 32, 512
+    out_0 = conv2d_layer(out_0, 2 * num_classes, 3, 'cls1')  # 48, 32, 512
+    out_0 = conv_layer(out_0, 1, 1, stride=1, layer_name="cls2")
+
     # # 2nd unet
     u2_in = tf.concat([rcl1, concat9], -1)  # 192, 128, num_classes
     u2_rcl1 = rcl(u2_in, 8, 3, 'u2_rcl1')  # 768, 512, 32
@@ -379,12 +384,12 @@ def full_network(num_classes, training=True):
     # 192, 128, num_classes
     u2_concat9 = tf.concat([deconv9, u2_res_lv1, u2_deconv9], -1)
 
-    # # Classifier
+    # # Classifier #2
     out = conv2d_layer(u2_concat9, 4 * num_classes, 3, 'out1')  # 48, 32, 512
     out = conv2d_layer(out, 2 * num_classes, 3, 'out2')  # 48, 32, 512
     out = conv_layer(out, num_classes, 1, stride=1, layer_name="out3")
 
-    return out, _input
+    return out_0, out, _input
 
 
 # for dense unet here

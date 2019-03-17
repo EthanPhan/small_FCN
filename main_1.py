@@ -28,12 +28,12 @@ else:
 EPOCHS = 100000
 BATCH_SIZE = 1
 LR = 0.0003
-CLASSES = ['None', "partner_code", "contact_document_number", "issued_date",
+CLASSES = ["partner_code", "contact_document_number", "issued_date",
            "car_number", "amount_including_tax", "amount_excluding_tax", "item_name"]
 IMG_SIZE = (512, 448)
 
 
-def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
+def optimize(nn_last_layer, aux_out, correct_label, aux_label, learning_rate, num_classes):
     """
     Build the TensorFLow loss and optimizer operations.
     :param nn_last_layer: TF Tensor of the last layer in the neural network
@@ -45,7 +45,9 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     gl_step = tf.Variable(
         0, dtype=tf.int32, trainable=False, name='global_step')
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
+    aux_logits = tf.reshape(aux_out, (-1, 1))
     labels = tf.reshape(correct_label, (-1, num_classes))
+    aux_labels = tf.reshape(aux_label, (-1, 1))
 
     # loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
     #    logits=logits, labels=labels))
@@ -57,9 +59,13 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     c1_loss_w = 4
     c2_loss_w = 1 * c1_loss_w
     # classes_weights = tf.constant([c0_loss_w, c1_loss_w, c2_loss_w])
-    classes_weights = tf.constant([0.02, 3, 3, 3, 3, 3, 3, 2])
-    loss = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(
+    classes_weights = tf.constant([3, 3, 3, 3, 3, 3, 2], dtype=tf.float32)
+    aux_classes_weights = tf.constant([1], dtype=tf.float32)
+    main_loss = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(
         targets=tf.cast(labels, tf.float32), logits=logits, pos_weight=classes_weights))
+    aux_loss = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(
+        targets=tf.cast(aux_labels, tf.float32), logits=aux_logits, pos_weight=aux_classes_weights))
+    loss = tf.add(main_loss, aux_loss)
 
     train_op = tf.train.AdamOptimizer(
         learning_rate).minimize(loss, global_step=gl_step)
@@ -71,7 +77,7 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
 
 
 def run_train(sess, training_steps, batch_size, train_batches_fn, test_batches_fn, train_op, cross_entropy_loss, input_image,
-              model_out, correct_label, learning_rate, saver, gl_step):
+              model_out, aux_out, correct_label, aux_label, learning_rate, saver, gl_step):
     """
     Train neural network and print out the loss during training.
     :param sess: TF Session
@@ -92,10 +98,11 @@ def run_train(sess, training_steps, batch_size, train_batches_fn, test_batches_f
     iteration = gl_step.eval()
     epoch = 0
     while True:
-        for image, image_c in train_batches_fn(batch_size):
+        for image, gt, aux_gt in train_batches_fn(batch_size):
             _, loss, pred = sess.run([train_op, cross_entropy_loss, model_out], feed_dict={
                 input_image: image,
-                correct_label: image_c,
+                correct_label: gt,
+                aux_label: aux_gt,
                 learning_rate: LR
             })
             samples_plot.append(sample)
@@ -111,10 +118,11 @@ def run_train(sess, training_steps, batch_size, train_batches_fn, test_batches_f
 
         eval_sample = 0
         eval_loss = 0
-        for image, image_c in test_batches_fn(batch_size):
+        for image, gt, aux_gt in test_batches_fn(batch_size):
             loss = sess.run([cross_entropy_loss], feed_dict={
                 input_image: image,
-                correct_label: image_c,
+                correct_label: gt,
+                aux_label: aux_gt,
                 learning_rate: LR
             })
             eval_loss += loss[0]
@@ -159,11 +167,12 @@ def train():
             test_jsons, test_imgs, image_shape, BATCH_SIZE)
 
         correct_label = tf.placeholder(tf.int32)
+        aux_label = tf.placeholder(tf.int32)
         learning_rate = tf.placeholder(tf.float32)
 
-        last_layer, _input = full_network(num_classes)
+        aux_out, last_layer, _input = full_network(num_classes)
         logits, train_op, cross_entropy_loss, gl_step = optimize(
-            last_layer, correct_label, learning_rate, num_classes)
+            last_layer, aux_out, correct_label, aux_label, learning_rate, num_classes)
 
         # Train NN using the train_nn function
         sess.run(tf.global_variables_initializer())
@@ -174,7 +183,7 @@ def train():
         # train_nn(sess, EPOCHS, BATCH_SIZE, get_batches_fn, train_op,
         #          cross_entropy_loss, _input, correct_label, keep_prob, learning_rate, saver, gl_step)
         run_train(sess, EPOCHS, BATCH_SIZE, train_batches_fn, test_batches_fn, train_op,
-                  cross_entropy_loss, _input, last_layer, correct_label, learning_rate, saver, gl_step)
+                  cross_entropy_loss, _input, last_layer, aux_out, correct_label, aux_label, learning_rate, saver, gl_step)
 
 
 def infer(input_img, input_json):
