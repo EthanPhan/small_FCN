@@ -302,8 +302,8 @@ def label_2_image(img, label):
 
 
 def _augment_translate(img, gt):
-    x = random.randint(-50, 50)
-    y = random.randint(-80, 80)
+    x = random.randint(-40, 40)
+    y = random.randint(-60, 60)
     img = np.roll(img, shift=x, axis=1)
     gt = np.roll(gt, shift=x, axis=1)
     img = np.roll(img, shift=y, axis=0)

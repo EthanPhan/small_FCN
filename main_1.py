@@ -103,7 +103,7 @@ def run_train(sess, training_steps, batch_size, train_batches_fn, test_batches_f
             iteration += 1
             sample = sample + batch_size
 
-            if iteration % 300 == 0:
+            if iteration % 50 == 0:
                 saver.save(sess, os.path.join('checkpoints',
                                               'fcn'), global_step=gl_step)
                 img = label_2_image(image[0], pred[0])
@@ -117,10 +117,10 @@ def run_train(sess, training_steps, batch_size, train_batches_fn, test_batches_f
                 correct_label: image_c,
                 learning_rate: LR
             })
-            eval_loss += loss
+            eval_loss += loss[0]
             eval_sample += batch_size
 
-        print("%4d eval Loss: %f" % (epoch, eval_loss))
+        print("%4d eval Loss: %f" % (epoch, eval_loss/eval_sample))
         epoch += 1
 
 
@@ -149,7 +149,7 @@ def train():
     train_jsons = glob.glob('data/toyota/train/jsons/*.json')
     train_imgs = glob.glob('data/toyota/train/org_imgs/*.jpg')
     test_jsons = glob.glob('data/toyota/test/jsons/*.json')
-    test_imgs = glob.glob('data/toyota/test/org_imgs/*.jpg')
+    test_imgs = glob.glob('data/toyota/test/org_imgs/*.png')
 
     with tf.Session() as sess:
         # Create function to get batches
